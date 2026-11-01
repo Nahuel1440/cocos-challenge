@@ -11,7 +11,10 @@ const render = (error: unknown) => {
   const json = vi.fn();
   const status = vi.fn().mockReturnValue({ json });
   const host = {
-    switchToHttp: () => ({ getResponse: () => ({ status }) }),
+    switchToHttp: () => ({
+      getResponse: () => ({ status }),
+      getRequest: () => ({ id: 'req-1' }),
+    }),
   } as unknown as ArgumentsHost;
 
   new HttpExceptionFilter().catch(error, host);
@@ -30,6 +33,7 @@ describe('HttpExceptionFilter', () => {
       statusCode: 400,
       code: 'UNKNOWN_USER',
       message: 'User 999 does not exist',
+      requestId: 'req-1',
     });
   });
 
@@ -43,6 +47,7 @@ describe('HttpExceptionFilter', () => {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
       message: 'size must be a positive integer',
+      requestId: 'req-1',
     });
   });
 
@@ -54,6 +59,7 @@ describe('HttpExceptionFilter', () => {
       statusCode: 500,
       code: 'INTERNAL_ERROR',
       message: 'Internal server error',
+      requestId: 'req-1',
     });
   });
 
@@ -65,6 +71,7 @@ describe('HttpExceptionFilter', () => {
       statusCode: 404,
       code: 'NOT_FOUND',
       message: 'Cannot GET /nope',
+      requestId: 'req-1',
     });
   });
 });

@@ -10,7 +10,9 @@ import { DomainException } from '@/shared/domain/domain.exception';
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
-    const response = host.switchToHttp().getResponse();
+    const http = host.switchToHttp();
+    const response = http.getResponse();
+    const { id: requestId } = http.getRequest();
     if (exception instanceof BadRequestException) {
       const { message } = exception.getResponse() as {
         message: string | string[];
@@ -19,6 +21,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         statusCode: 400,
         code: 'VALIDATION_ERROR',
         message: [message].flat().join('; '),
+        requestId,
       });
       return;
     }
@@ -28,18 +31,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
         statusCode,
         code: HttpStatus[statusCode] ?? 'HTTP_ERROR',
         message: exception.message,
+        requestId,
       });
       return;
     }
     if (exception instanceof DomainException) {
       const { statusCode, code, message } = exception;
-      response.status(statusCode).json({ statusCode, code, message });
+      response
+        .status(statusCode)
+        .json({ statusCode, code, message, requestId });
       return;
     }
     response.status(500).json({
       statusCode: 500,
       code: 'INTERNAL_ERROR',
       message: 'Internal server error',
+      requestId,
     });
   }
 }
