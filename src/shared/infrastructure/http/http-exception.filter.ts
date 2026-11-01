@@ -7,7 +7,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { DomainException } from '@/shared/domain/domain.exception';
+import { DomainException } from '@/shared/domain/exceptions/domain.exception';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {

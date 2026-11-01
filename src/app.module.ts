@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
-import { HttpExceptionFilter } from '@/shared/presentation/http-exception.filter';
+import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
 
 const env = process.env.NODE_ENV;
 

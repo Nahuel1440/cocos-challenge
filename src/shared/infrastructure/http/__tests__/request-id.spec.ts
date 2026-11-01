@@ -8,7 +8,7 @@ import {
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '@/app.module';
-import { DomainException } from '@/shared/domain/domain.exception';
+import { DomainException } from '@/shared/domain/exceptions/domain.exception';
 
 @Controller('boom')
 class BoomController {

@@ -1,7 +1,7 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { UserRepository } from '@/shared/domain/user.repository';
-import { UserIdGuard } from '@/shared/presentation/user-id.guard';
+import type { UserRepository } from '@/shared/domain/ports/user.repository';
+import { UserIdGuard } from '@/shared/infrastructure/http/user-id.guard';
 
 const contextFor = (request: object) =>
   ({

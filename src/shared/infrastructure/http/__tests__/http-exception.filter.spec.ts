@@ -4,8 +4,8 @@ import {
   type ArgumentsHost,
 } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { DomainException } from '@/shared/domain/domain.exception';
-import { HttpExceptionFilter } from '@/shared/presentation/http-exception.filter';
+import { DomainException } from '@/shared/domain/exceptions/domain.exception';
+import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
 
 const render = (error: unknown) => {
   const log = { error: vi.fn() };

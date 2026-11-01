@@ -1,7 +1,7 @@
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
-import { DomainException } from '@/shared/domain/domain.exception';
-import type { UserRepository } from '@/shared/domain/user.repository';
+import { DomainException } from '@/shared/domain/exceptions/domain.exception';
+import type { UserRepository } from '@/shared/domain/ports/user.repository';
 
 const MAX_INT = 2147483647;
 
