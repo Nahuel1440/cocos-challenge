@@ -1,0 +1,53 @@
+datasource db {
+  provider = "postgresql"
+}
+
+model Instrument {
+  id         Int          @id @default(autoincrement())
+  ticker     String?      @db.VarChar(10)
+  name       String?      @db.VarChar(255)
+  type       String?      @db.VarChar(10)
+  marketData MarketData[]
+  orders     Order[]
+
+  @@map("instruments")
+}
+
+model MarketData {
+  id            Int         @id @default(autoincrement())
+  instrumentId  Int?        @map("instrumentid")
+  high          Decimal?    @db.Decimal(10, 2)
+  low           Decimal?    @db.Decimal(10, 2)
+  open          Decimal?    @db.Decimal(10, 2)
+  close         Decimal?    @db.Decimal(10, 2)
+  previousClose Decimal?    @map("previousclose") @db.Decimal(10, 2)
+  date          DateTime?   @db.Date
+  instrument    Instrument? @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("marketdata")
+}
+
+model Order {
+  id           Int         @id @default(autoincrement())
+  instrumentId Int?        @map("instrumentid")
+  userId       Int?        @map("userid")
+  size         Int?
+  price        Decimal?    @db.Decimal(10, 2)
+  type         String?     @db.VarChar(10)
+  side         String?     @db.VarChar(10)
+  status       String?     @db.VarChar(20)
+  datetime     DateTime?   @db.Timestamp(6)
+  instrument   Instrument? @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user         User?       @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("orders")
+}
+
+model User {
+  id            Int     @id @default(autoincrement())
+  email         String? @db.VarChar(255)
+  accountNumber String? @map("accountnumber") @db.VarChar(20)
+  orders        Order[]
+
+  @@map("users")
+}
