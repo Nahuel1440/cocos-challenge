@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import type { LedgerEntry } from '@/orders/domain/summarize-ledger';
+import type { LedgerEntry } from '@/orders/domain/services/ledger.service';
 
 const ARS_INSTRUMENT_ID = 66;
 

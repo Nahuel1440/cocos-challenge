@@ -1,18 +1,20 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
-import { LedgerEntryMother } from '@/orders/domain/__tests__/ledger-entry.mother';
+import { LedgerEntryMother } from '@/orders/domain/services/__tests__/ledger-entry.mother';
 import {
-  summarizeLedger,
+  LedgerService,
   type LedgerEntry,
-} from '@/orders/domain/summarize-ledger';
+} from '@/orders/domain/services/ledger.service';
 
-describe('summarizeLedger', () => {
+const ledger = new LedgerService();
+
+describe('summarize', () => {
   it('should return zero cash and no holdings when there are no entries', () => {
     // Arrange
     const NO_ENTRIES: LedgerEntry[] = [];
 
     // Act
-    const summary = summarizeLedger(NO_ENTRIES);
+    const summary = ledger.summarize(NO_ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(new Decimal('0'))).toBe(true);
@@ -29,7 +31,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_TOTAL_CASH = new Decimal('700');
 
     // Act
-    const summary = summarizeLedger(TRANSFERS);
+    const summary = ledger.summarize(TRANSFERS);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
@@ -46,7 +48,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_TOTAL_CASH = new Decimal('800');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
@@ -65,7 +67,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVERAGE = new Decimal('100');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -85,7 +87,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVAILABLE_CASH = new Decimal('700');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
@@ -103,7 +105,7 @@ describe('summarizeLedger', () => {
     ];
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -122,7 +124,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVERAGE = new Decimal('150');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -140,7 +142,7 @@ describe('summarizeLedger', () => {
     ];
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -157,7 +159,7 @@ describe('summarizeLedger', () => {
     ];
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(INSTRUMENT_31);
@@ -172,7 +174,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_TOTAL_CASH = new Decimal('30');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(INSTRUMENT_31);
@@ -192,7 +194,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVERAGE = new Decimal('1600');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(INSTRUMENT_31);
@@ -211,7 +213,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVERAGE_TEN_DECIMALS = '33.3333333333';
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -242,7 +244,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVERAGE = new Decimal('200');
 
     // Act
-    const summary = summarizeLedger(REVERSED_ENTRIES);
+    const summary = ledger.summarize(REVERSED_ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -273,7 +275,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_AVERAGE = new Decimal('200');
 
     // Act
-    const summary = summarizeLedger(REVERSED_ENTRIES);
+    const summary = ledger.summarize(REVERSED_ENTRIES);
 
     // Assert
     expect(
@@ -291,7 +293,7 @@ describe('summarizeLedger', () => {
     const EXPECTED_CASH = new Decimal('1000');
 
     // Act
-    const summary = summarizeLedger(ENTRIES);
+    const summary = ledger.summarize(ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_CASH)).toBe(true);
