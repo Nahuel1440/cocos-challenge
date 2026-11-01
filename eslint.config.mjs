@@ -7,4 +7,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
+  {
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['../*'], message: 'Use @/... (maps to src/...)' }] },
+      ],
+    },
+  },
 );
