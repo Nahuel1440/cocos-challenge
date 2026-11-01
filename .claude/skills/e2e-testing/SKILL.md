@@ -46,10 +46,11 @@ describe('POST /orders (e2e)', () => {
 ## What to cover
 
 - 1–2 critical flows per endpoint. Push branch coverage down to unit tests.
-- The `X-User-Id` check on every route: missing or invalid → `400`.
+- The `X-User-Id` check on every route: missing, invalid or unknown user → `400` with body code `MISSING_USER_ID`, `INVALID_USER_ID` or `UNKNOWN_USER`. Assert the `code`.
 - One input-validation `400` per endpoint.
 - Status codes as SPEC says: send-order `201` for `FILLED`, `NEW` and `REJECTED`; cancel `200`, `409`, `404`.
 - Concurrency: fire concurrent orders with `Promise.all` and assert cash or shares never go below zero. Mind that the seed has user 1 with holding −10 on instrument 31 (SPEC, seed pitfalls).
+- Idempotency: same `Idempotency-Key` and same body → the original response plus `Idempotent-Replayed: true`, no second order; same key with a different body → `422`. A `201` carries `Location`.
 - Money in responses is a decimal string. Assert strings, never numbers.
 
 ## Anti-patterns
@@ -67,7 +68,7 @@ describe('POST /orders (e2e)', () => {
 - [ ] App booted with the same pipes and filters as main.ts
 - [ ] truncate + reload seed in beforeEach
 - [ ] Business actions go through real endpoints
-- [ ] X-User-Id missing/invalid → 400 covered
+- [ ] X-User-Id missing/invalid/unknown → 400 with code covered
 - [ ] Validation 400 covered
 - [ ] Money asserted as decimal strings
 ```
