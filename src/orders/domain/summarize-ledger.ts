@@ -109,7 +109,7 @@ function settleSell(
   amount: Decimal,
 ): void {
   state.totalCash = state.totalCash.plus(amount);
-  const holding = state.holdings.get(entry.instrumentId)!;
+  const holding = state.holdings.get(entry.instrumentId) ?? EMPTY_HOLDING;
   const quantity = holding.quantity - entry.size;
   const averagePrice = quantity <= 0 ? null : holding.averagePrice;
   state.holdings.set(entry.instrumentId, {
