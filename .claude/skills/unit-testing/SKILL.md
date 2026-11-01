@@ -1,62 +1,234 @@
 ---
 name: unit-testing
-description: "Writes Vitest unit specs for the Cocos NestJS API (hexagonal): which layer owns each rule, test-data factories, typed mocked ports, Decimal assertions. MUST be used before implementing or changing a domain rule, entity, value object or use case (T5, T7, and the error mapping of T4), because the spec comes first (strict TDD), even when the user never says 'test'. Also use when the user says 'write a test', 'unit test this', or mocks a port, and when creating or editing `*.spec.ts` or `*.mother.ts` files. Do NOT use for HTTP or database tests (e2e-testing skill) or questions that do not change code."
+description: "Writes unit tests following classicist TDD for the Cocos hexagonal NestJS API (Vitest). Triggers when creating tests, testing domain rules, entities, value objects or use cases, mocking a port, or creating `*.spec.ts` and `*.mother.ts` files. MUST be used before implementing or changing a domain rule, because the test comes first (strict TDD). Do NOT use for HTTP or database tests (e2e-testing skill)."
 ---
 
-Strict TDD (CLAUDE.md): the user names every test, you write one failing test, then the minimum code. This skill covers how to write them. Specs live in `__tests__/` beside the code and match `src/**/*.spec.ts`.
+## When to Use
 
-## What each layer's spec covers
+- Writing unit tests for domain or application layer code
+- Deciding whether something needs a unit test or an e2e test
+- Creating Object Mothers for test data
+- Reviewing existing tests for quality
 
-| Layer | Unit spec? | Asserts | Mocks |
+**Not for:** HTTP or database tests (e2e-testing skill), performance testing.
+
+## Decision Tree: Should I Write This Unit Test?
+
+```
+Is it pure logic (no I/O, no DB, no HTTP)?
+├─ YES → Is the logic trivial (simple getter, pass-through, single assignment)?
+│        ├─ YES → ❌ SKIP — no value
+│        └─ NO  → ✅ WRITE unit test
+└─ NO  → Does it cross a system boundary (DB, API, filesystem)?
+         ├─ YES → ❌ SKIP — use an e2e test instead
+         └─ NO  → Can I mock the boundary via a port/interface?
+                  ├─ YES → ✅ WRITE unit test with mocked port
+                  └─ NO  → ❌ Refactor to inject dependency, then test
+```
+
+**Unit vs e2e boundary:** If you need Prisma, a real DB, Docker, or an HTTP server, it is an e2e test, not a unit test.
+
+### What to Test per Layer
+
+| Layer | Test? | What to assert | Mock? |
 |---|---|---|---|
-| Domain rules (send-order T5, portfolio T7) | Always | Outcomes, rejection reasons, invariants | Nothing |
-| Value object / entity | When there is logic | Validation, state transitions, the domain exceptions it throws | Nothing |
-| Use case | When it orchestrates | Which port is called with what, errors it raises itself, output | Ports only |
-| Repository, controller, DTO | No | Covered over HTTP by the e2e-testing skill | — |
+| **Value Object** | ✅ Always | Creation, validation, equality, edge cases | Nothing — pure logic |
+| **Entity** | ✅ Always | State transitions, invariants, domain rules | Nothing — pure logic |
+| **Domain Service** (order validation, ledger calculation) | ✅ Always | Business rules involving multiple entities | Nothing — pure logic |
+| **Use Case** | ✅ When orchestration has logic | Output, errors it raises itself, the state it leaves behind | Ports (repositories) |
+| **Repository impl** | ❌ Skip | — | e2e test with real DB |
+| **Controller** | ❌ Skip | — | e2e test |
+| **DTOs / primitive types** | ❌ Skip | Data shapes | — |
 
-How many: one happy path, one test per error path or rejection reason, one per real edge case. If you cannot name the risk a test covers, do not write it. Do not test getters, logging or call order.
+### How Many Tests Are Enough?
 
-## Bootstrap
+Happy path + each error path + each domain edge case. **If you can't name the risk a test covers, don't write it.**
 
-- **Domain code**: build with `new` or a factory. No DI.
-- **Use cases**: `new MyService(mockRepo)`. Use `Test.createTestingModule` only when the test needs Nest DI.
+```
+✅ 1 happy path (correct output)
+✅ 1 test per error path (not found, invalid input, rejection reason)
+✅ 1 test per meaningful edge case (zero cash, boundary values)
+❌ Don't test: logging calls, internal method delegation order, constructor assignments
+```
 
-Build mocks at module level as `Mocked<Port>` (from `vitest`) with each method a `vi.fn()`. Call `vi.resetAllMocks()` in `beforeEach`, and set return values inside each test. Never `as any`.
+## Critical Rules
 
-## Test data
+1. **Test behavior, not implementation** — Assert what happened (output, thrown error, resulting state), not how it happened
+2. **Classicist mocking** — Only mock ports/interfaces (repositories). Domain objects are always real
+3. **Manual instantiation** — Create services with `new MyService(mockRepo)`; use `Test.createTestingModule` only when the test needs Nest DI
+4. **One reason to fail** — Each test should fail for exactly one reason
+5. **No test should break on refactor** — If internals change but behavior stays the same, tests must pass
 
-- Small factory functions in `__tests__/` (a `*.mother.ts` if shared) that build valid defaults. Name them after domain intent (`limitBuy()`).
-- Pass explicit values for anything an assertion depends on. A test must not rely on a default the reader cannot see.
+## File Structure
 
-## Money in tests
+Tests are co-located with the code they test, in `__tests__/`, as `*.spec.ts` (vitest includes `src/**/*.spec.ts`). Mothers live next to the domain object they represent:
 
-- Build amounts from strings: `new Decimal('100.10')`, never a JS number (D-1, NFR-2).
-- Compare with Decimal equality or `.toString()`, never `toBeCloseTo`.
-- JSON-shaped values (`"3.33"`) are strings (D-23). Rounding: see SPEC; if the mode is not there, STOP and ask.
+```
+src/{module}/
+├── domain/
+│   ├── order.ts
+│   └── __tests__/
+│       ├── order.spec.ts
+│       └── order.mother.ts
+├── application/
+│   ├── send-order.service.ts
+│   └── __tests__/
+│       └── send-order.service.spec.ts
+```
 
-## Mocking ports
+Mothers and mocks are **importable across modules** via `@/` imports.
 
-Mock only ports (names below are illustrative). Entities and value objects are always real. Pin the input the port received, not only the output:
+**Mock placement rule:** Mocks of a port live in the `__tests__/` directory of the **module that owns the port**, not in the consuming test's directory. This makes mocks reusable.
+
+## Test File Structure (AAA)
 
 ```typescript
-// ❌ passes even if the use case loads the wrong user's ledger
-ledger.findByUser.mockResolvedValue(emptyLedger());
-await service.run(input);
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 
-// ✅ also pins the input
-expect(ledger.findByUser).toHaveBeenCalledWith(USER_ID);
+const mockLedger: Mocked<LedgerRepository> = {
+  findByUser: vi.fn(),
+  save: vi.fn(),
+}
+
+const service = new SendOrderService(mockLedger)
+
+beforeEach(() => {
+  vi.resetAllMocks()
+})
+
+describe('run', () => {
+  it('should reject with INSUFFICIENT_FUNDS when cost exceeds available cash', async () => {
+    // Arrange
+    const AVAILABLE_CASH = new Decimal('500.00')
+    const input = OrderInputMother.marketBuyCosting('800.00')
+    mockLedger.findByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
+
+    // Act
+    const result = await service.run(input)
+
+    // Assert
+    expect(result.status).toBe('REJECTED')
+    expect(result.rejectionReason).toBe('INSUFFICIENT_FUNDS')
+  })
+})
 ```
 
-## Naming
+- Name the variable under test descriptively (`service`, `calculator`, `validator`) — avoid generic `sut`
+- Mocks and service instantiated at **module level**, reset with `vi.resetAllMocks()` in `beforeEach`
+- One `describe` per method being tested
+- **Named constants** for expected values (`AVAILABLE_CASH`) — referenced in both arrange and assert for clarity
+- Never use `afterEach` — `vi.resetAllMocks()` in `beforeEach` handles cleanup
 
-`should {outcome} when {condition}`, e.g. `should reject with INSUFFICIENT_FUNDS when cost exceeds available cash`. A failing name must say what broke. Use named constants (`EXPECTED_CASH`) in both arrange and assert.
+## Money in Tests
 
-## Checklist
+- Build amounts from strings: `new Decimal('100.10')`, never a JS number.
+- Compare with Decimal equality or `.toString()`, never `toBeCloseTo`.
+- JSON-shaped values are decimal strings (`"3.33"`), not numbers.
+
+## Object Mother Pattern
+
+Valid-by-default test objects. Callers override only what their test cares about. Prefer **semantic factory methods** that express domain intent.
+
+**Critical: Never assume Mother defaults in tests.** Tests must pass explicit values for anything relevant to the assertion. A reader should understand the test without looking at the Mother.
+
+**Prefer semantic Mother methods over inline overrides.** When a test needs a specific scenario, create a semantic factory method on the Mother rather than passing complex inline overrides:
+
+```typescript
+// ❌ BAD — relies on knowing Mother defaults
+const ledger = LedgerMother.create()
+expect(ledger.availableCash()).toEqual(new Decimal('1000.00')) // Where does 1000 come from?
+
+// ⚠️ OK but verbose — explicit overrides, hard to scan
+const ledger = LedgerMother.create({
+  entries: [EntryMother.cashIn({ amount: new Decimal('1000.00') })],
+})
+
+// ✅ GOOD — semantic Mother method, test reads like a sentence
+const LEDGER_WITH_1000_CASH = LedgerMother.withCash(new Decimal('1000.00'))
+
+expect(LEDGER_WITH_1000_CASH.availableCash()).toEqual(new Decimal('1000.00'))
+```
+
+When inline overrides are needed, assign them to **named constants** that describe the scenario, so the test reads top-down without mental math.
+
+```typescript
+import { Order } from '@/orders/domain/order'
+
+export class OrderMother {
+  static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
+
+  static limitBuy(price: string, size: number): Order { /* ... */ }
+  static filledSell(size: number): Order { /* ... */ }
+}
+```
+
+- One Mother per domain object, co-located in its `__tests__/` directory
+- `create(overrides?)` is always the base method
+- **Semantic factories** (`limitBuy()`, `filledSell()`) over generic overrides — the name should express domain intent
+- Mothers are shared across modules via `@/` imports
+- Mothers NEVER depend on other Mothers unless there is a genuine aggregate relationship
+
+## Mocking Ports
+
+Create typed mock objects using `Mocked<T>` from `vitest` — never `as any`. Mock only ports; entities and value objects are always real.
+
+Configure mock return values per-test in the Arrange phase, not in `beforeEach`.
+
+Assert the result, not the interaction. A port call is worth asserting only when it **is** the observable outcome (a write the use case exists to make): then assert the saved value, not the number or order of calls.
+
+```typescript
+// ❌ Implementation: breaks if the use case caches or batches reads
+expect(mockLedger.findByUser).toHaveBeenCalledTimes(1)
+
+// ✅ Behavior: the order that was persisted
+expect(mockOrders.save).toHaveBeenCalledWith(
+  expect.objectContaining({ status: 'FILLED', userId: USER_ID }),
+)
+```
+
+## Naming Convention
 
 ```
-- [ ] The user named the test; it failed first
-- [ ] One reason to fail per test
-- [ ] Only ports mocked; domain objects real
+should {expected behavior} when {condition/context}
+```
+
+| Good | Bad |
+|---|---|
+| `should reject with INSUFFICIENT_FUNDS when cost exceeds available cash` | `test rejection` |
+| `should throw InvalidPrice when price has 3 decimals` | `should validate price` |
+| `should not save the order when validation fails` | `should handle errors` |
+
+Start with `should`, describe the **outcome**, include the **condition**. A failing test name should tell you what broke.
+
+## Anti-Patterns
+
+| Anti-Pattern | BAD | GOOD |
+|---|---|---|
+| **Implementation details** | `expect(mock).toHaveBeenCalledBefore(otherMock)` | `expect(result.cash).toEqual(expected)` |
+| **Mock overload** | `{ debit: vi.fn().mockReturnValue(true) }` | `LedgerMother.withCash('1000.00')` |
+| **Meaningless assertion** | `expect(mockRepo.save).toHaveBeenCalled()` | `expect(mockRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'FILLED' }))` |
+| **Shared mutable state** | Ledger created outside `it()` blocks | Fresh instance per test via Mother |
+| **Trivial test** | Testing a simple getter returns what was set | Skip — no logic to verify |
+| **Implicit Mother defaults** | `OrderMother.create()` then assert on default values | Use semantic Mother methods or named constants |
+| **Verbose inline overrides** | Complex `Mother.create({ ... })` with many params inline | Create a semantic Mother method and assign to a named constant |
+| **Money as number** | `new Decimal(100.1)` | `new Decimal('100.10')` |
+
+## Validation Checklist
+
+Run before considering tests done:
+
+```
+Test Quality:
+- [ ] The user named the test and it failed first
+- [ ] Each test has exactly one reason to fail
+- [ ] Tests use `should ... when ...` naming
+- [ ] No implementation details tested (call order, call counts, internal methods)
+- [ ] The test survives a refactor that keeps behavior
+- [ ] All error paths covered (invalid input, not found, rejection reasons)
+- [ ] Object Mothers used for test data (not inline object literals)
+- [ ] Mocks are only on ports/interfaces, never on domain objects
 - [ ] Money built from strings, no JS number
-- [ ] No test depends on another's state or on order
+- [ ] No shared mutable state between tests
+- [ ] Tests pass independently (no order dependency)
+- [ ] Can name the specific risk each test covers
 ```
