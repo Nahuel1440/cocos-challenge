@@ -47,6 +47,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
         .json({ statusCode, code, message, requestId });
       return;
     }
+    // body-parser (http-errors) 4xx: 413, 415... keep their own status.
+    const { status, message } = (exception ?? {}) as {
+      status?: unknown;
+      message?: string;
+    };
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      response.status(status).json({
+        statusCode: status,
+        code: HttpStatus[status] ?? 'HTTP_ERROR',
+        message,
+        requestId,
+      });
+      return;
+    }
     if (request.log) {
       request.log.error({ err: exception }, 'Unhandled exception');
     } else {
