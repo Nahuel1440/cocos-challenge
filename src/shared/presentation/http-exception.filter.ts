@@ -48,15 +48,30 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
     // body-parser (http-errors) 4xx: 413, 415... keep their own status.
-    const { status, message } = (exception ?? {}) as {
+    // Only exposed http-errors; any other error with a `status` stays a 500.
+    const httpError = exception as {
       status?: unknown;
-      message?: string;
+      statusCode?: unknown;
+      expose?: unknown;
+      type?: unknown;
     };
-    if (typeof status === 'number' && status >= 400 && status < 500) {
+    if (
+      exception instanceof Error &&
+      httpError.expose === true &&
+      typeof httpError.status === 'number' &&
+      httpError.status === httpError.statusCode &&
+      httpError.status >= 400 &&
+      httpError.status < 500
+    ) {
+      const { status } = httpError;
+      // Body-parser fails before pino-http: no access line, so log it here.
+      const context = { requestId, status, type: httpError.type };
+      if (request.log) request.log.warn(context, exception.message);
+      else new Logger(HttpExceptionFilter.name).warn({ ...context });
       response.status(status).json({
         statusCode: status,
         code: HttpStatus[status] ?? 'HTTP_ERROR',
-        message,
+        message: exception.message,
         requestId,
       });
       return;

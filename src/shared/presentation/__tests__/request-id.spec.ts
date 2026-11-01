@@ -69,10 +69,14 @@ describe('request id', () => {
       headers: { 'Content-Type': 'application/json' },
       body: '{bad',
     });
-    const body = (await response.json()) as { requestId: string };
+    const body = (await response.json()) as {
+      code: string;
+      requestId: string;
+    };
 
     const requestId = response.headers.get('X-Request-Id');
     expect(response.status).toBe(400);
+    expect(body.code).toBe('VALIDATION_ERROR');
     expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
     expect(body.requestId).toBe(requestId);
   });
