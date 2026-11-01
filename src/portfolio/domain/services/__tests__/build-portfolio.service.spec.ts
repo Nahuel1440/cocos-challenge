@@ -368,4 +368,31 @@ describe('run', () => {
       31, 47, 54,
     ]);
   });
+
+  it('should print 0.00 when the return rounds to zero from below', () => {
+    // Arrange
+    const PAMP_ID = 47;
+    const ENTRIES = [
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 1,
+        price: '100.00',
+      }),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 1,
+        price: '100.01',
+      }),
+    ];
+    const PRICES = new Map([[PAMP_ID, new Decimal('100.00')]]);
+
+    // Act
+    const portfolio = buildPortfolio.run({
+      summary: summarizeLedger.run(ENTRIES),
+      latestPrices: PRICES,
+    });
+
+    // Assert
+    expect(portfolio.positions[0]?.totalReturnPercentage).toBe('0.00');
+  });
 });
