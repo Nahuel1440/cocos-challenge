@@ -229,7 +229,7 @@ Each invariant is its own named private method, or a named boolean, that states 
 ```typescript
 // Bad: the reader has to decode the rule
 if (!(Number.isInteger(size) && size > 0) && !(amount !== undefined && amount.gt(0))) {
-  throw new InvalidArgumentError('size', size);
+  throw new InvalidSizeException(size);
 }
 
 // Good: the rule has a name
@@ -237,7 +237,7 @@ private static ensureSizeIsPositiveInteger(size: number): void {
   const sizeIsPositiveInteger = Number.isInteger(size) && size > 0;
 
   if (!sizeIsPositiveInteger) {
-    throw new InvalidArgumentError('size', size);
+    throw new InvalidSizeException(size);
   }
 }
 ```

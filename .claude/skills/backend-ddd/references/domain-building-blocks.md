@@ -194,7 +194,7 @@ export abstract class ValueObject<T extends Primitives> {
 
   private ensureValueIsDefined(value: T): void {
     if (value === null || value === undefined) {
-      throw new InvalidArgumentError('value', value);
+      throw new MissingValueException();
     }
   }
 }
@@ -256,6 +256,6 @@ export class OrderNotFoundException extends DomainException {
 
 `DomainException` declares `abstract readonly code` and `abstract readonly category` and never reads them in its constructor (field initializers run after `super()`). A server fault is not a category: an unexpected error becomes a `500` in the filter, never a domain exception. Add a category only when a new status is needed, and add it to the filter in the same change.
 
-`InvalidArgumentError` (shared, `extends DomainException`, code `INVALID_ARGUMENT`, category `InvalidArgument`) is what guards and value objects throw for a malformed argument.
+A guard or value object throws a specific `{Subject}{Reason}Exception` (`InvalidSizeException`, `MissingUserIdException`) with its own stable code and category `InvalidArgument`. There is no generic `InvalidArgumentError`.
 
 **Naming:** `{Entity}{Reason}Exception`: `OrderNotFoundException`, `OrderNotCancellableException`. Every code is unique. Lint rejects a numeric status passed to `super(...)` in a domain exception. Never extend Nest's `HttpException` in `domain/`. A `REJECTED` order is a value the domain returns, not an exception.
