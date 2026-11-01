@@ -8,18 +8,23 @@ import { DomainException } from '@/shared/domain/domain.exception';
 import { HttpExceptionFilter } from '@/shared/presentation/http-exception.filter';
 
 const render = (error: unknown) => {
+  const log = { error: vi.fn() };
   const json = vi.fn();
   const status = vi.fn().mockReturnValue({ json });
   const host = {
     switchToHttp: () => ({
       getResponse: () => ({ status }),
-      getRequest: () => ({ id: 'req-1' }),
+      getRequest: () => ({ id: 'req-1', log }),
     }),
   } as unknown as ArgumentsHost;
 
   new HttpExceptionFilter().catch(error, host);
 
-  return { status: status.mock.calls[0]?.[0], body: json.mock.calls[0]?.[0] };
+  return {
+    status: status.mock.calls[0]?.[0],
+    body: json.mock.calls[0]?.[0],
+    log,
+  };
 };
 
 describe('HttpExceptionFilter', () => {
@@ -73,5 +78,18 @@ describe('HttpExceptionFilter', () => {
       message: 'Cannot GET /nope',
       requestId: 'req-1',
     });
+  });
+
+  it('should log the error with its stack and hide it from the response when an unexpected error occurs', () => {
+    const error = new Error('connection refused at db:5432');
+
+    const { body, log } = render(error);
+
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: error }),
+      expect.any(String),
+    );
+    expect(error.stack).toContain('connection refused');
+    expect(JSON.stringify(body)).not.toContain(error.stack);
   });
 });

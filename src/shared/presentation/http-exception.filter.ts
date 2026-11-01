@@ -12,7 +12,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const http = host.switchToHttp();
     const response = http.getResponse();
-    const { id: requestId } = http.getRequest();
+    const request = http.getRequest();
+    const requestId = request.id;
     if (exception instanceof BadRequestException) {
       const { message } = exception.getResponse() as {
         message: string | string[];
@@ -42,6 +43,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         .json({ statusCode, code, message, requestId });
       return;
     }
+    request.log.error({ err: exception }, 'Unhandled exception');
     response.status(500).json({
       statusCode: 500,
       code: 'INTERNAL_ERROR',
