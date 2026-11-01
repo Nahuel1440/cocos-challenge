@@ -4,13 +4,13 @@ import type { LedgerSummary } from '@/orders/domain/services/summarize-ledger.se
 export interface PortfolioPosition {
   instrumentId: number;
   quantity: number;
-  averagePrice: string | null;
-  marketValue: string | null;
-  totalReturnPercentage: string | null;
+  averagePrice: Decimal | null;
+  marketValue: Decimal | null;
+  totalReturnPercentage: Decimal | null;
 }
 
 export interface Portfolio {
-  totalValue: string;
+  totalValue: Decimal;
   positions: PortfolioPosition[];
 }
 
@@ -44,33 +44,22 @@ export class BuildPortfolioService {
       positions.push({
         instrumentId,
         quantity: holding.quantity,
-        averagePrice: holding.averagePrice
-          ? this.round(holding.averagePrice)
-          : null,
-        marketValue: marketValue ? this.round(marketValue) : null,
+        averagePrice,
+        marketValue: marketValue ?? null,
         totalReturnPercentage: hasReturn
-          ? this.round(
-              this.returnPercentage({
-                price,
-                averagePrice,
-              }),
-            )
+          ? this.returnPercentage({ price, averagePrice })
           : null,
       });
     }
 
     positions.sort((a, b) => a.instrumentId - b.instrumentId);
 
-    return { totalValue: this.round(totalValue), positions };
+    return { totalValue, positions };
   }
 
   private returnPercentage(params: ReturnPercentageParams): Decimal {
     const { price, averagePrice } = params;
 
     return price.minus(averagePrice).div(averagePrice).times(PERCENT);
-  }
-
-  private round(value: Decimal): string {
-    return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
   }
 }
