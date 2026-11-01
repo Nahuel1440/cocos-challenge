@@ -588,4 +588,65 @@ describe('run', () => {
     expect(decision.status).toBe('REJECTED');
     expect(decision.rejectionReason).toBe('INSUFFICIENT_FUNDS');
   });
+
+  it('should compute the size from the amount at the limit price on a LIMIT', () => {
+    // Arrange
+    const LIMIT_PRICE = new Decimal('500.00');
+    const MARKET_PRICE = new Decimal('930.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'LIMIT',
+      size: null,
+      amount: new Decimal('10000.00'),
+      limitPrice: LIMIT_PRICE,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledCashIn(100000),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('NEW');
+    expect(decision.price?.equals(LIMIT_PRICE)).toBe(true);
+    expect(decision.size).toBe(20);
+  });
+
+  it('should leave a LIMIT SELL as NEW when available shares cover the size', () => {
+    // Arrange
+    const LIMIT_PRICE = new Decimal('120.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'LIMIT',
+      size: 4,
+      limitPrice: LIMIT_PRICE,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_ID,
+        size: 10,
+        price: '50.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: new Decimal('100.00'),
+    });
+
+    // Assert
+    expect(decision.status).toBe('NEW');
+    expect(decision.rejectionReason).toBeNull();
+    expect(decision.price?.equals(LIMIT_PRICE)).toBe(true);
+    expect(decision.size).toBe(4);
+  });
 });
