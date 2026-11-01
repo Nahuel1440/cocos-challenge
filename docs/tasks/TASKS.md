@@ -1,6 +1,6 @@
 # TASKS: Portfolio, search and orders API
 
-Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit of ≤ 400 lines. The structure follows gamora-sv: `src/<module>/{domain,application,infrastructure,presentation}`, with `src/shared` and `test/support`.
+Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit of ≤ 400 lines. The structure follows gamora-sv: `src/<module>/{domain,application,infrastructure}`, with `src/shared` and `test/support`.
 
 > **Tests:** the user writes the case names before starting each task (TDD). `no-test` = pure infrastructure.
 
@@ -34,7 +34,7 @@ Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit
 
 ### T4 · `X-User-Id` guard and error mapping
 - **Goal:** a guard that reads `X-User-Id` (missing or invalid → `400`, D-22) and a `DomainException` → HTTP filter with no stack traces (NFR-6).
-- **Where it lives:** `src/shared/presentation/`, `src/shared/domain/`.
+- **Where it lives:** `src/shared/infrastructure/http/`, `src/shared/domain/{ports,exceptions}/`.
 - **Tests:** _(named by the user)_
 - **Depends on:** T1. **Parallel with:** T2, T5, T7.
 
@@ -46,7 +46,7 @@ Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit
 
 ### T6 · `POST /orders` endpoint + mandatory functional test
 - **Goal:** body validation (D-8, D-23), transaction with `pg_advisory_xact_lock(userId)` (D-9), insert the order, `201` + `Location` (D-17).
-- **Where it lives:** `src/orders/{application,infrastructure,presentation}/`, `test/orders.e2e-spec.ts`.
+- **Where it lives:** `src/orders/{application,infrastructure}/`, `test/orders.e2e-spec.ts`.
 - **Tests:** _(named by the user; includes the functional test the brief asks for)_
 - **Depends on:** T3, T4, T5. **Parallel with:** T8, T9.
 
@@ -58,7 +58,7 @@ Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit
 
 ### T8 · `GET /portfolio` endpoint
 - **Goal:** read `FILLED` + `NEW` orders and the latest `marketdata` in a single read transaction (NFR-5) and return the SPEC contract.
-- **Where it lives:** `src/portfolio/{application,infrastructure,presentation}/`, `test/portfolio.e2e-spec.ts`.
+- **Where it lives:** `src/portfolio/{application,infrastructure}/`, `test/portfolio.e2e-spec.ts`.
 - **Tests:** _(named by the user)_
 - **Depends on:** T3, T4, T7. **Parallel with:** T6, T9.
 
@@ -70,7 +70,7 @@ Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit
 
 ### T11 · Mandatory cancellation: `POST /orders/:id/cancel`
 - **Objective:** implement FR-4 using the declared `X-User-Id` identity (D-22) and a transaction with `pg_advisory_xact_lock(userId)` shared with send-order (D-9).
-- **Location:** `src/orders/{domain,application,infrastructure,presentation}/`, `test/orders.e2e-spec.ts`.
+- **Location:** `src/orders/{domain,application,infrastructure}/`, `test/orders.e2e-spec.ts`.
 - **Tests:** _(case names are written by the user before implementation, as required above)_
 - **Acceptance:** an order owned by the declared user in `NEW` becomes `CANCELLED` and returns `200` with the order; an owned order in any other status returns `409`; a missing order or one owned by another user returns `404`. Cancelling a BUY releases its reserved cash and cancelling a SELL releases its reserved shares through the existing derived-balance model: only the order status changes; no separate balance is updated (D-6, NFR-4).
 - **Depends on:** T6.
