@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import {
   BadRequestException,
   Catch,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { DomainException } from '@/shared/domain/domain.exception';
 
@@ -13,7 +15,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const response = http.getResponse();
     const request = http.getRequest();
-    const requestId = request.id;
+    // Body-parser errors fail before pino-http runs: no id and no request.log.
+    const requestId: string = request.id ?? randomUUID();
+    if (!request.id) response.setHeader('X-Request-Id', requestId);
     if (exception instanceof BadRequestException) {
       const { message } = exception.getResponse() as {
         message: string | string[];
@@ -43,7 +47,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
         .json({ statusCode, code, message, requestId });
       return;
     }
-    request.log.error({ err: exception }, 'Unhandled exception');
+    if (request.log) {
+      request.log.error({ err: exception }, 'Unhandled exception');
+    } else {
+      new Logger(HttpExceptionFilter.name).error(
+        `Unhandled exception (requestId ${requestId})`,
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+    }
     response.status(500).json({
       statusCode: 500,
       code: 'INTERNAL_ERROR',

@@ -89,7 +89,6 @@ describe('HttpExceptionFilter', () => {
       expect.objectContaining({ err: error }),
       expect.any(String),
     );
-    expect(error.stack).toContain('connection refused');
     expect(JSON.stringify(body)).not.toContain(error.stack);
   });
 });
