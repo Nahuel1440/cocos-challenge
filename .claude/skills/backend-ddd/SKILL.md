@@ -3,7 +3,7 @@ name: backend-ddd
 description: "Fixes where code goes in the Cocos hexagonal NestJS API: module layout, domain services as classes, entities, ports with Symbol tokens, dumb Prisma repositories, use cases and controllers. MUST be used before creating or moving a file under `src/`, or when adding a module, entity, domain service, port, repository, use case, controller or DTO, or when the user says 'new module', 'add use case', 'where does this go'. Do NOT use for writing tests (unit-testing, e2e-testing skills)."
 ---
 
-Each module has three layers: `domain` (rules), `application` (use cases), `infrastructure` (Prisma and HTTP). If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user.
+Each module has three layers: `domain` (rules), `application` (use cases), `infrastructure` (Prisma and HTTP). If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user. Cocos has no soft delete, no criteria builder (D-10) and no domain events: do not add them.
 
 ## Layout
 
@@ -23,12 +23,15 @@ src/<module>/
 └── <module>.module.ts
 ```
 
-Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` (`DomainException`, `UnitOfWork`, user guard). Create only the folders a module uses: `instruments` needs `ports/`, `use-cases/`, `persistence/` and `http/`, nothing else.
+Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` with the same layout. Create only the folders a module uses: `instruments` needs `ports/`, `use-cases/`, `persistence/` and `http/`, nothing else.
+
+- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`, `UnitOfWork` + `UNIT_OF_WORK` (T14).
+- `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id.
 
 | Layer | May import | Never imports |
 |---|---|---|
 | `domain/` | `decimal.js`, domain code (its own, `@/shared/domain`, other modules' `domain/`) | `@nestjs/*`, `@prisma/client`, application, infrastructure |
-| `application/` | domain, `@nestjs/common` (`Injectable`, `Inject`, `Logger`), shared `UnitOfWork` | infrastructure, Prisma, DTOs |
+| `application/` | domain (ports included, e.g. `UnitOfWork`), `@nestjs/common` (`Injectable`, `Inject`, `Logger`) | infrastructure, Prisma, DTOs |
 | `infrastructure/` | anything | — |
 
 Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/domain/...`; `portfolio` imports from `orders`, never the reverse (D-32).
@@ -50,7 +53,7 @@ export class LedgerService {
 }
 ```
 
-Helpers are `private` methods. Data shapes the service takes or returns (`LedgerEntry`, `LedgerSummary`) are exported interfaces in the same file. Nest registers it as a plain provider (`providers: [LedgerService]`); it needs no `@Injectable()` because its constructor is empty.
+A domain service never injects a port and never does I/O: the use case loads the data and passes it in. Helpers are `private` methods. Data shapes the service takes or returns (`LedgerEntry`, `LedgerSummary`) are exported interfaces in the same file. Nest registers it as a plain provider (`providers: [LedgerService]`); it needs no `@Injectable()` because its constructor is empty.
 
 ## Rule 2: Entities own their state changes
 
@@ -148,25 +151,13 @@ Wiring: `providers: [SendOrderUseCase, LedgerService, OrderDecisionService, { pr
 
 Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e-testing skill (HTTP and database).
 
-## Anti-patterns
-
-| Anti-pattern | Instead |
-|---|---|
-| `export function summarizeLedger()` in `domain/` | `LedgerService.summarize()` |
-| `@Injectable()`, Nest or Prisma imports in `domain/` | Plain class; Prisma only in `persistence/` |
-| A port injected by its interface type | `@Inject(ORDER_REPOSITORY)` |
-| A repository that sums cash or picks statuses | A domain service; the caller passes the statuses |
-| A controller that calls a repository or a domain service | Controller → use case |
-| Throwing on `REJECTED` | Return the `REJECTED` order (`201`, D-17) |
-| Rounding in the domain or the use case | Round once in `http/` (D-30) |
-| Soft delete, criteria, domain events, a generic base repository | Not used in Cocos |
-
 ## Checklist
 
 ```
 - [ ] The file sits in the layout above; no empty folders
 - [ ] No decorators, Nest or Prisma imports in domain/
 - [ ] Business rules are methods of a domain service or an entity
+- [ ] Domain services inject no port and do no I/O
 - [ ] Ports are an interface + Symbol, injected with @Inject(TOKEN)
 - [ ] Repositories only map and query
 - [ ] Controllers inject use cases only
