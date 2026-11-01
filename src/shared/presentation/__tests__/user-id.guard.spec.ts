@@ -50,4 +50,12 @@ describe('UserIdGuard', () => {
     await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
     expect(request.userId).toBe(7);
   });
+
+  it('should reject with INVALID_USER_ID when the X-User-Id exceeds the INT range', async () => {
+    const guard = new UserIdGuard(usersWith(true));
+
+    await expect(
+      guard.canActivate(contextWith({ 'x-user-id': '2147483648' })),
+    ).rejects.toMatchObject({ code: 'INVALID_USER_ID', statusCode: 400 });
+  });
 });

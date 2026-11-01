@@ -1,4 +1,8 @@
-import { BadRequestException, type ArgumentsHost } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  type ArgumentsHost,
+} from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { DomainException } from '@/shared/domain/domain.exception';
 import { HttpExceptionFilter } from '@/shared/presentation/http-exception.filter';
@@ -50,6 +54,17 @@ describe('HttpExceptionFilter', () => {
       statusCode: 500,
       code: 'INTERNAL_ERROR',
       message: 'Internal server error',
+    });
+  });
+
+  it('should render an HttpException with its own status and the D-29 body', () => {
+    const { status, body } = render(new NotFoundException('Cannot GET /nope'));
+
+    expect(status).toBe(404);
+    expect(body).toEqual({
+      statusCode: 404,
+      code: 'NOT_FOUND',
+      message: 'Cannot GET /nope',
     });
   });
 });

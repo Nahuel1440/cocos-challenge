@@ -3,6 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { DomainException } from '@/shared/domain/domain.exception';
 import type { UserRepository } from '@/shared/domain/user.repository';
 
+const MAX_INT = 2147483647;
+
 @Injectable()
 export class UserIdGuard implements CanActivate {
   constructor(private readonly users: UserRepository) {}
@@ -16,7 +18,7 @@ export class UserIdGuard implements CanActivate {
         'X-User-Id header is required',
       );
     }
-    if (!/^\d+$/.test(raw)) {
+    if (!/^\d+$/.test(raw) || Number(raw) > MAX_INT) {
       throw new DomainException(
         'INVALID_USER_ID',
         'X-User-Id must be an integer',

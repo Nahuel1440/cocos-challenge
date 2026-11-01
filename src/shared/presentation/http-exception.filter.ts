@@ -1,5 +1,10 @@
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
-import { BadRequestException, Catch } from '@nestjs/common';
+import {
+  BadRequestException,
+  Catch,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { DomainException } from '@/shared/domain/domain.exception';
 
 @Catch()
@@ -14,6 +19,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
         statusCode: 400,
         code: 'VALIDATION_ERROR',
         message: [message].flat().join('; '),
+      });
+      return;
+    }
+    if (exception instanceof HttpException) {
+      const statusCode = exception.getStatus();
+      response.status(statusCode).json({
+        statusCode,
+        code: HttpStatus[statusCode] ?? 'HTTP_ERROR',
+        message: exception.message,
       });
       return;
     }
