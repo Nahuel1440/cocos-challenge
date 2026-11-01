@@ -38,8 +38,25 @@ interface LedgerState {
   reservedShares: Map<number, number>;
 }
 
-export class LedgerService {
-  summarize(entries: LedgerEntry[]): LedgerSummary {
+interface ApplyEntryParams {
+  state: LedgerState;
+  entry: LedgerEntry;
+}
+
+interface SettleTradeParams {
+  state: LedgerState;
+  entry: LedgerEntry;
+  amount: Decimal;
+}
+
+interface AverageAfterBuyParams {
+  held: Holding;
+  entry: LedgerEntry;
+  quantity: number;
+}
+
+export class SummarizeLedgerService {
+  public run(entries: LedgerEntry[]): LedgerSummary {
     const state: LedgerState = {
       totalCash: new Decimal(0),
       reservedCash: new Decimal(0),
@@ -49,10 +66,12 @@ export class LedgerService {
     const replayOrder = [...entries].sort(
       (a, b) => a.datetime.getTime() - b.datetime.getTime() || a.id - b.id,
     );
+
     for (const entry of replayOrder) {
-      if (entry.status === 'NEW') this.reserve(state, entry);
-      else this.settle(state, entry);
+      if (entry.status === 'NEW') this.reserve({ state, entry });
+      else this.settle({ state, entry });
     }
+
     return {
       totalCash: state.totalCash,
       availableCash: state.totalCash.minus(state.reservedCash),
@@ -60,7 +79,9 @@ export class LedgerService {
     };
   }
 
-  private reserve(state: LedgerState, entry: LedgerEntry): void {
+  private reserve(params: ApplyEntryParams): void {
+    const { state, entry } = params;
+
     if (entry.side === 'BUY') {
       state.reservedCash = state.reservedCash.plus(
         entry.price.times(entry.size),
@@ -72,47 +93,48 @@ export class LedgerService {
     }
   }
 
-  private settle(state: LedgerState, entry: LedgerEntry): void {
+  private settle(params: ApplyEntryParams): void {
+    const { state, entry } = params;
     const amount = entry.price.times(entry.size);
+
     if (entry.side === 'CASH_IN')
       state.totalCash = state.totalCash.plus(amount);
     if (entry.side === 'CASH_OUT')
       state.totalCash = state.totalCash.minus(amount);
-    if (entry.side === 'BUY') this.settleBuy(state, entry, amount);
-    if (entry.side === 'SELL') this.settleSell(state, entry, amount);
+    if (entry.side === 'BUY') this.settleBuy({ state, entry, amount });
+    if (entry.side === 'SELL') this.settleSell({ state, entry, amount });
   }
 
-  private settleBuy(
-    state: LedgerState,
-    entry: LedgerEntry,
-    amount: Decimal,
-  ): void {
+  private settleBuy(params: SettleTradeParams): void {
+    const { state, entry, amount } = params;
+
     state.totalCash = state.totalCash.minus(amount);
+
     const held = state.holdings.get(entry.instrumentId) ?? EMPTY_HOLDING;
     const quantity = held.quantity + entry.size;
-    const averagePrice = this.averageAfterBuy(held, entry, quantity);
+    const averagePrice = this.averageAfterBuy({ held, entry, quantity });
     state.holdings.set(entry.instrumentId, { ...held, quantity, averagePrice });
   }
 
-  private averageAfterBuy(
-    held: Holding,
-    entry: LedgerEntry,
-    quantity: number,
-  ): Decimal | null {
-    if (quantity <= 0) return null;
-    if (held.averagePrice === null) return entry.price;
-    return held.averagePrice
+  private averageAfterBuy(params: AverageAfterBuyParams): Decimal | null {
+    const { held, entry, quantity } = params;
+    const positionIsClosed = quantity <= 0;
+    const { averagePrice } = held;
+
+    if (positionIsClosed) return null;
+    if (averagePrice === null) return entry.price;
+
+    return averagePrice
       .times(held.quantity)
       .plus(entry.price.times(entry.size))
       .div(quantity);
   }
 
-  private settleSell(
-    state: LedgerState,
-    entry: LedgerEntry,
-    amount: Decimal,
-  ): void {
+  private settleSell(params: SettleTradeParams): void {
+    const { state, entry, amount } = params;
+
     state.totalCash = state.totalCash.plus(amount);
+
     const holding = state.holdings.get(entry.instrumentId) ?? EMPTY_HOLDING;
     const quantity = holding.quantity - entry.size;
     const averagePrice = quantity <= 0 ? null : holding.averagePrice;
@@ -125,6 +147,7 @@ export class LedgerService {
 
   private withAvailableQuantity(state: LedgerState): Map<number, Holding> {
     const holdings = new Map<number, Holding>();
+
     for (const [instrumentId, holding] of state.holdings) {
       const reserved = state.reservedShares.get(instrumentId) ?? 0;
       holdings.set(instrumentId, {
@@ -132,6 +155,7 @@ export class LedgerService {
         availableQuantity: holding.quantity - reserved,
       });
     }
+
     return holdings;
   }
 }

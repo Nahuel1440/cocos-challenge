@@ -1,10 +1,22 @@
 import Decimal from 'decimal.js';
-import type { LedgerEntry } from '@/orders/domain/services/ledger.service';
+import type { LedgerEntry } from '@/orders/domain/services/summarize-ledger.service';
 
 const ARS_INSTRUMENT_ID = 66;
 
+interface PlacedAtParams {
+  entry: LedgerEntry;
+  id: number;
+  isoDatetime: string;
+}
+
+interface TradeParams {
+  instrumentId: number;
+  size: number;
+  price: string;
+}
+
 export class LedgerEntryMother {
-  static create(overrides?: Partial<LedgerEntry>): LedgerEntry {
+  public static create(overrides?: Partial<LedgerEntry>): LedgerEntry {
     return {
       id: 1,
       instrumentId: 47,
@@ -17,15 +29,13 @@ export class LedgerEntryMother {
     };
   }
 
-  static placedAt(
-    entry: LedgerEntry,
-    id: number,
-    isoDatetime: string,
-  ): LedgerEntry {
+  public static placedAt(params: PlacedAtParams): LedgerEntry {
+    const { entry, id, isoDatetime } = params;
+
     return { ...entry, id, datetime: new Date(isoDatetime) };
   }
 
-  static filledCashIn(amount: number): LedgerEntry {
+  public static filledCashIn(amount: number): LedgerEntry {
     return this.create({
       instrumentId: ARS_INSTRUMENT_ID,
       side: 'CASH_IN',
@@ -35,11 +45,9 @@ export class LedgerEntryMother {
     });
   }
 
-  static filledBuy(
-    instrumentId: number,
-    size: number,
-    price: string,
-  ): LedgerEntry {
+  public static filledBuy(params: TradeParams): LedgerEntry {
+    const { instrumentId, size, price } = params;
+
     return this.create({
       instrumentId,
       side: 'BUY',
@@ -49,11 +57,9 @@ export class LedgerEntryMother {
     });
   }
 
-  static filledSell(
-    instrumentId: number,
-    size: number,
-    price: string,
-  ): LedgerEntry {
+  public static filledSell(params: TradeParams): LedgerEntry {
+    const { instrumentId, size, price } = params;
+
     return this.create({
       instrumentId,
       side: 'SELL',
@@ -63,11 +69,9 @@ export class LedgerEntryMother {
     });
   }
 
-  static newBuy(
-    instrumentId: number,
-    size: number,
-    price: string,
-  ): LedgerEntry {
+  public static newBuy(params: TradeParams): LedgerEntry {
+    const { instrumentId, size, price } = params;
+
     return this.create({
       instrumentId,
       side: 'BUY',
@@ -77,11 +81,9 @@ export class LedgerEntryMother {
     });
   }
 
-  static newSell(
-    instrumentId: number,
-    size: number,
-    price: string,
-  ): LedgerEntry {
+  public static newSell(params: TradeParams): LedgerEntry {
+    const { instrumentId, size, price } = params;
+
     return this.create({
       instrumentId,
       side: 'SELL',
@@ -91,15 +93,15 @@ export class LedgerEntryMother {
     });
   }
 
-  static newCashIn(amount: number): LedgerEntry {
+  public static newCashIn(amount: number): LedgerEntry {
     return { ...this.filledCashIn(amount), status: 'NEW' };
   }
 
-  static newCashOut(amount: number): LedgerEntry {
+  public static newCashOut(amount: number): LedgerEntry {
     return { ...this.filledCashOut(amount), status: 'NEW' };
   }
 
-  static filledCashOut(amount: number): LedgerEntry {
+  public static filledCashOut(amount: number): LedgerEntry {
     return this.create({
       instrumentId: ARS_INSTRUMENT_ID,
       side: 'CASH_OUT',

@@ -2,19 +2,19 @@ import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { LedgerEntryMother } from '@/orders/domain/services/__tests__/ledger-entry.mother';
 import {
-  LedgerService,
+  SummarizeLedgerService,
   type LedgerEntry,
-} from '@/orders/domain/services/ledger.service';
+} from '@/orders/domain/services/summarize-ledger.service';
 
-const ledger = new LedgerService();
+const summarizeLedger = new SummarizeLedgerService();
 
-describe('summarize', () => {
+describe('run', () => {
   it('should return zero cash and no holdings when there are no entries', () => {
     // Arrange
     const NO_ENTRIES: LedgerEntry[] = [];
 
     // Act
-    const summary = ledger.summarize(NO_ENTRIES);
+    const summary = summarizeLedger.run(NO_ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(new Decimal('0'))).toBe(true);
@@ -31,7 +31,7 @@ describe('summarize', () => {
     const EXPECTED_TOTAL_CASH = new Decimal('700');
 
     // Act
-    const summary = ledger.summarize(TRANSFERS);
+    const summary = summarizeLedger.run(TRANSFERS);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
@@ -43,12 +43,16 @@ describe('summarize', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
       LedgerEntryMother.filledCashIn(1000),
-      LedgerEntryMother.filledBuy(PAMP_ID, 2, '100'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 2,
+        price: '100',
+      }),
     ];
     const EXPECTED_TOTAL_CASH = new Decimal('800');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
@@ -60,14 +64,22 @@ describe('summarize', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
       LedgerEntryMother.filledCashIn(1000),
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '100'),
-      LedgerEntryMother.filledSell(PAMP_ID, 4, '120'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '100',
+      }),
+      LedgerEntryMother.filledSell({
+        instrumentId: PAMP_ID,
+        size: 4,
+        price: '120',
+      }),
     ];
     const EXPECTED_TOTAL_CASH = new Decimal('480');
     const EXPECTED_AVERAGE = new Decimal('100');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -81,13 +93,17 @@ describe('summarize', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
       LedgerEntryMother.filledCashIn(1000),
-      LedgerEntryMother.newBuy(PAMP_ID, 3, '100'),
+      LedgerEntryMother.newBuy({
+        instrumentId: PAMP_ID,
+        size: 3,
+        price: '100',
+      }),
     ];
     const EXPECTED_TOTAL_CASH = new Decimal('1000');
     const EXPECTED_AVAILABLE_CASH = new Decimal('700');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
@@ -100,12 +116,20 @@ describe('summarize', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
       LedgerEntryMother.filledCashIn(1000),
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '100'),
-      LedgerEntryMother.newSell(PAMP_ID, 4, '150'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '100',
+      }),
+      LedgerEntryMother.newSell({
+        instrumentId: PAMP_ID,
+        size: 4,
+        price: '150',
+      }),
     ];
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -118,13 +142,21 @@ describe('summarize', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
       LedgerEntryMother.filledCashIn(10000),
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '100'),
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '200'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '100',
+      }),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '200',
+      }),
     ];
     const EXPECTED_AVERAGE = new Decimal('150');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -137,12 +169,20 @@ describe('summarize', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
       LedgerEntryMother.filledCashIn(1000),
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '100'),
-      LedgerEntryMother.filledSell(PAMP_ID, 10, '120'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '100',
+      }),
+      LedgerEntryMother.filledSell({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '120',
+      }),
     ];
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -154,12 +194,20 @@ describe('summarize', () => {
     // Arrange: seed user 1, instrument 31 (BUY 20 + SELL 30)
     const INSTRUMENT_31 = 31;
     const ENTRIES = [
-      LedgerEntryMother.filledBuy(INSTRUMENT_31, 20, '1540'),
-      LedgerEntryMother.filledSell(INSTRUMENT_31, 30, '1530'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_31,
+        size: 20,
+        price: '1540',
+      }),
+      LedgerEntryMother.filledSell({
+        instrumentId: INSTRUMENT_31,
+        size: 30,
+        price: '1530',
+      }),
     ];
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(INSTRUMENT_31);
@@ -170,11 +218,17 @@ describe('summarize', () => {
   it('should keep a negative quantity and a null average when a SELL has no earlier BUY', () => {
     // Arrange
     const INSTRUMENT_31 = 31;
-    const ENTRIES = [LedgerEntryMother.filledSell(INSTRUMENT_31, 3, '10')];
+    const ENTRIES = [
+      LedgerEntryMother.filledSell({
+        instrumentId: INSTRUMENT_31,
+        size: 3,
+        price: '10',
+      }),
+    ];
     const EXPECTED_TOTAL_CASH = new Decimal('30');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(INSTRUMENT_31);
@@ -187,14 +241,26 @@ describe('summarize', () => {
     // Arrange: seed holding of -10, then a BUY of 15 @ 1600 takes it to 5
     const INSTRUMENT_31 = 31;
     const ENTRIES = [
-      LedgerEntryMother.filledBuy(INSTRUMENT_31, 20, '1540'),
-      LedgerEntryMother.filledSell(INSTRUMENT_31, 30, '1530'),
-      LedgerEntryMother.filledBuy(INSTRUMENT_31, 15, '1600'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_31,
+        size: 20,
+        price: '1540',
+      }),
+      LedgerEntryMother.filledSell({
+        instrumentId: INSTRUMENT_31,
+        size: 30,
+        price: '1530',
+      }),
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_31,
+        size: 15,
+        price: '1600',
+      }),
     ];
     const EXPECTED_AVERAGE = new Decimal('1600');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(INSTRUMENT_31);
@@ -206,14 +272,26 @@ describe('summarize', () => {
     // Arrange: 1 @ 33.33, 1 @ 33.33, 1 @ 33.34 -> 100 / 3
     const PAMP_ID = 47;
     const ENTRIES = [
-      LedgerEntryMother.filledBuy(PAMP_ID, 1, '33.33'),
-      LedgerEntryMother.filledBuy(PAMP_ID, 1, '33.33'),
-      LedgerEntryMother.filledBuy(PAMP_ID, 1, '33.34'),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 1,
+        price: '33.33',
+      }),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 1,
+        price: '33.33',
+      }),
+      LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 1,
+        price: '33.34',
+      }),
     ];
     const EXPECTED_AVERAGE_TEN_DECIMALS = '33.3333333333';
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -225,26 +303,38 @@ describe('summarize', () => {
   it('should replay entries by datetime regardless of input order', () => {
     // Arrange: chronological BUY 10 @ 100, SELL 10, BUY 10 @ 200 -> average 200; passed in reverse
     const PAMP_ID = 47;
-    const FIRST_BUY = LedgerEntryMother.placedAt(
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '100'),
-      1,
-      '2023-07-12T10:00:00Z',
-    );
-    const SELL = LedgerEntryMother.placedAt(
-      LedgerEntryMother.filledSell(PAMP_ID, 10, '110'),
-      2,
-      '2023-07-12T11:00:00Z',
-    );
-    const SECOND_BUY = LedgerEntryMother.placedAt(
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '200'),
-      3,
-      '2023-07-12T12:00:00Z',
-    );
+    const FIRST_BUY = LedgerEntryMother.placedAt({
+      entry: LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '100',
+      }),
+      id: 1,
+      isoDatetime: '2023-07-12T10:00:00Z',
+    });
+    const SELL = LedgerEntryMother.placedAt({
+      entry: LedgerEntryMother.filledSell({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '110',
+      }),
+      id: 2,
+      isoDatetime: '2023-07-12T11:00:00Z',
+    });
+    const SECOND_BUY = LedgerEntryMother.placedAt({
+      entry: LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '200',
+      }),
+      id: 3,
+      isoDatetime: '2023-07-12T12:00:00Z',
+    });
     const REVERSED_ENTRIES = [SECOND_BUY, SELL, FIRST_BUY];
     const EXPECTED_AVERAGE = new Decimal('200');
 
     // Act
-    const summary = ledger.summarize(REVERSED_ENTRIES);
+    const summary = summarizeLedger.run(REVERSED_ENTRIES);
 
     // Assert
     const holding = summary.holdings.get(PAMP_ID);
@@ -256,26 +346,38 @@ describe('summarize', () => {
     // Arrange: same datetime, ids 1 < 2 < 3, passed in reverse
     const PAMP_ID = 47;
     const SAME_INSTANT = '2023-07-12T10:00:00Z';
-    const FIRST_BUY = LedgerEntryMother.placedAt(
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '100'),
-      1,
-      SAME_INSTANT,
-    );
-    const SELL = LedgerEntryMother.placedAt(
-      LedgerEntryMother.filledSell(PAMP_ID, 10, '110'),
-      2,
-      SAME_INSTANT,
-    );
-    const SECOND_BUY = LedgerEntryMother.placedAt(
-      LedgerEntryMother.filledBuy(PAMP_ID, 10, '200'),
-      3,
-      SAME_INSTANT,
-    );
+    const FIRST_BUY = LedgerEntryMother.placedAt({
+      entry: LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '100',
+      }),
+      id: 1,
+      isoDatetime: SAME_INSTANT,
+    });
+    const SELL = LedgerEntryMother.placedAt({
+      entry: LedgerEntryMother.filledSell({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '110',
+      }),
+      id: 2,
+      isoDatetime: SAME_INSTANT,
+    });
+    const SECOND_BUY = LedgerEntryMother.placedAt({
+      entry: LedgerEntryMother.filledBuy({
+        instrumentId: PAMP_ID,
+        size: 10,
+        price: '200',
+      }),
+      id: 3,
+      isoDatetime: SAME_INSTANT,
+    });
     const REVERSED_ENTRIES = [SECOND_BUY, SELL, FIRST_BUY];
     const EXPECTED_AVERAGE = new Decimal('200');
 
     // Act
-    const summary = ledger.summarize(REVERSED_ENTRIES);
+    const summary = summarizeLedger.run(REVERSED_ENTRIES);
 
     // Assert
     expect(
@@ -293,7 +395,7 @@ describe('summarize', () => {
     const EXPECTED_CASH = new Decimal('1000');
 
     // Act
-    const summary = ledger.summarize(ENTRIES);
+    const summary = summarizeLedger.run(ENTRIES);
 
     // Assert
     expect(summary.totalCash.equals(EXPECTED_CASH)).toBe(true);
