@@ -5,8 +5,20 @@ import {
   type ArgumentsHost,
 } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { UnknownUserException } from '@/shared/domain';
+import {
+  DomainException,
+  ErrorCategory,
+  UnknownUserException,
+} from '@/shared/domain';
 import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
+
+class StubException extends DomainException {
+  public readonly code = 'STUB';
+
+  constructor(public readonly category: ErrorCategory) {
+    super('stub message');
+  }
+}
 
 const render = (error: unknown) => {
   const log = { error: vi.fn() };
@@ -29,6 +41,26 @@ const render = (error: unknown) => {
 };
 
 describe('HttpExceptionFilter', () => {
+  it.each([
+    [ErrorCategory.InvalidArgument, 400],
+    [ErrorCategory.NotFound, 404],
+    [ErrorCategory.Conflict, 409],
+    [ErrorCategory.Unprocessable, 422],
+  ])(
+    'should map each ErrorCategory to its HTTP status (%s -> %i)',
+    (category, expected) => {
+      const { status, body } = render(new StubException(category));
+
+      expect(status).toBe(expected);
+      expect(body).toEqual({
+        statusCode: expected,
+        code: 'STUB',
+        message: 'stub message',
+        requestId: 'req-1',
+      });
+    },
+  );
+
   it('should render a DomainException as { statusCode, code, message }', () => {
     const { status, body } = render(new UnknownUserException('999'));
 
