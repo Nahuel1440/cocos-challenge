@@ -165,6 +165,22 @@ describe('summarizeLedger', () => {
     expect(holding?.averagePrice).toBeNull();
   });
 
+  it('should keep a negative quantity and a null average when a SELL has no earlier BUY', () => {
+    // Arrange
+    const INSTRUMENT_31 = 31;
+    const ENTRIES = [LedgerEntryMother.filledSell(INSTRUMENT_31, 3, '10')];
+    const EXPECTED_TOTAL_CASH = new Decimal('30');
+
+    // Act
+    const summary = summarizeLedger(ENTRIES);
+
+    // Assert
+    const holding = summary.holdings.get(INSTRUMENT_31);
+    expect(summary.totalCash.equals(EXPECTED_TOTAL_CASH)).toBe(true);
+    expect(holding?.quantity).toBe(-3);
+    expect(holding?.averagePrice).toBeNull();
+  });
+
   it('should use the price of the BUY as the average when buying back from 0 or below', () => {
     // Arrange: seed holding of -10, then a BUY of 15 @ 1600 takes it to 5
     const INSTRUMENT_31 = 31;
