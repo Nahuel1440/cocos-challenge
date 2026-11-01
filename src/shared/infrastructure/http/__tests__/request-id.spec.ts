@@ -13,17 +13,17 @@ import { DomainException } from '@/shared/domain/exceptions/domain.exception';
 @Controller('boom')
 class BoomController {
   @Get()
-  boom() {
+  public boom() {
     throw new DomainException('UNKNOWN_USER', 'User 999 does not exist');
   }
 
   @Get('ok')
-  ok() {
+  public ok() {
     return { ok: true };
   }
 
   @Post('echo')
-  echo(@Body() body: unknown) {
+  public echo(@Body() body: unknown) {
     return body;
   }
 }

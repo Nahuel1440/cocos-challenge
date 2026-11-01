@@ -14,7 +14,7 @@ export class UserIdGuard implements CanActivate {
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
   ) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const raw = request.headers['x-user-id'];
     if (raw === undefined) {
@@ -29,7 +29,7 @@ export class UserIdGuard implements CanActivate {
         'X-User-Id must be an integer',
       );
     }
-    if (!(await this.users.exists(Number(raw)))) {
+    if (!(await this.users.searchExistsById(Number(raw)))) {
       throw new DomainException('UNKNOWN_USER', `User ${raw} does not exist`);
     }
     request.userId = Number(raw);

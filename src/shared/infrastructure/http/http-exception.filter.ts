@@ -11,7 +11,7 @@ import { DomainException } from '@/shared/domain/exceptions/domain.exception';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  catch(exception: unknown, host: ArgumentsHost) {
+  public catch(exception: unknown, host: ArgumentsHost) {
     const http = host.switchToHttp();
     const response = http.getResponse();
     const request = http.getRequest();

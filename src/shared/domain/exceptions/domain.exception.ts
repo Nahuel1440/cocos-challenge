@@ -1,8 +1,8 @@
 export class DomainException extends Error {
   constructor(
-    readonly code: string,
+    public readonly code: string,
     message: string,
-    readonly statusCode = 400,
+    public readonly statusCode = 400,
   ) {
     super(message);
   }

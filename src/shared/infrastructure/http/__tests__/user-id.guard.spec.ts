@@ -16,7 +16,7 @@ const contextWith = (headers: Record<string, string>) =>
   contextFor({ headers });
 
 const usersWith = (exists: boolean): UserRepository => ({
-  exists: vi.fn().mockResolvedValue(exists),
+  searchExistsById: vi.fn().mockResolvedValue(exists),
 });
 
 describe('UserIdGuard', () => {
@@ -31,7 +31,7 @@ describe('UserIdGuard', () => {
     await expect(
       guard.canActivate(contextWith({ 'x-user-id': '1' })),
     ).resolves.toBe(true);
-    expect(users.exists).toHaveBeenCalledWith(1);
+    expect(users.searchExistsById).toHaveBeenCalledWith(1);
   });
 
   it('should reject with MISSING_USER_ID when the X-User-Id header is absent', async () => {
