@@ -3,7 +3,29 @@ name: backend-ddd
 description: "Fixes where code goes in the Cocos hexagonal NestJS API: module layout, domain services as classes, entities, ports with Symbol tokens, dumb Prisma repositories, use cases and controllers. MUST be used before creating or moving a file under `src/`, or when adding a module, entity, domain service, port, repository, use case, controller or DTO, or when the user says 'new module', 'add use case', 'where does this go'. Do NOT use for writing tests (unit-testing, e2e-testing skills)."
 ---
 
-Each module has three layers: `domain` (rules), `application` (use cases), `infrastructure` (Prisma and HTTP). If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user. Cocos has no soft delete, no criteria builder and no domain events: do not add them.
+Each module has three layers: `domain` (rules), `application` (use cases), `infrastructure` (Prisma and HTTP). If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user. Cocos has no soft delete, no criteria builder and no domain events: do not add them. These rules are project-specific and diverge from textbook DDD; read [references/conventions.md](references/conventions.md) before generating code.
+
+## When to Use
+
+- Creating a module, entity, domain service, port, repository, use case, controller or DTO
+- Moving or renaming a file under `src/`
+- Reviewing where a rule belongs
+
+Do NOT use for tests (unit-testing, e2e-testing skills).
+
+## Decision Tree
+
+| Task | Files | Reference |
+|---|---|---|
+| New module | the tree below, hand-written | [module-scaffold.md](references/module-scaffold.md) |
+| New use case | `application/use-cases/{verb}-{noun}.use-case.ts` | [use-cases.md](references/use-cases.md) |
+| New entity or value object | `domain/entities/`, `domain/value-objects/` | [domain-building-blocks.md](references/domain-building-blocks.md) |
+| New domain service | `domain/services/{verb}-{noun}.service.ts` | Rule 1 |
+| New port | `domain/ports/{name}.repository.ts` (interface + Symbol) | [conventions.md](references/conventions.md#repository-port-shape) |
+| New repository adapter | `infrastructure/persistence/prisma-{name}.repository.ts` + mapper | [module-scaffold.md](references/module-scaffold.md), [conventions.md](references/conventions.md#dumb-repositories) |
+| New exception | `domain/exceptions/{name}.exception.ts` | [domain-building-blocks.md](references/domain-building-blocks.md#domain-exception) |
+| New DTO / controller | `infrastructure/http/` | [module-scaffold.md](references/module-scaffold.md) |
+| Repository logging or retry | decorator on the port | [repository-decorators.md](references/repository-decorators.md) |
 
 ## Layout
 
@@ -57,15 +79,16 @@ A domain service never injects a port and never does I/O: the use case loads the
 
 ## Rule 2: Entities own their state changes
 
-A rule about one order is a method on the `Order` entity. Entities are exempt from the one-public-method rule: they may have several.
+A rule about one order is a command on the `Order` entity: it mutates `this` and returns `void`. Entities have a private constructor with a props object, `create` / `fromPrimitives` / `toPrimitives`, `getX()` accessors and explicit private fields; money is `Decimal` inside and a string in `OrderPrimitives`. Entities are exempt from the one-public-method rule. Full pattern: [domain-building-blocks.md](references/domain-building-blocks.md#entity).
 
 ```typescript
 // src/orders/domain/entities/order.entity.ts
 public cancel(now: Date): void {
-  if (this.props.status === 'CANCELLED') return; // already cancelled: a retry changes nothing
-  if (this.props.status !== 'NEW') throw new OrderNotCancellableException(this.props.id);
-  this.props.status = 'CANCELLED';
-  this.props.cancelledAt = now; // app clock, after the lock
+  if (this.status === 'CANCELLED') return; // already cancelled: a retry changes nothing
+  if (this.status !== 'NEW') throw new OrderNotCancellableException(this.id);
+
+  this.status = 'CANCELLED';
+  this.cancelledAt = now; // app clock, after the lock
 }
 ```
 
@@ -88,34 +111,35 @@ export class OrderNotFoundException extends DomainException {
 // src/orders/domain/ports/order.repository.ts
 export const ORDER_REPOSITORY = Symbol('OrderRepository');
 
-export interface FindByUserParams {
+export interface SearchOrdersByUserParams {
   userId: number;
   statuses: OrderStatus[];
 }
 
 export interface OrderRepository {
-  findByUser(params: FindByUserParams): Promise<LedgerEntry[]>;
-  findById(id: number): Promise<Order | null>;
   save(order: Order): Promise<Order>;
+  searchByUser(params: SearchOrdersByUserParams): Promise<LedgerEntry[]>;
+  searchById(id: number): Promise<Order | null>;
+  findById(id: number): Promise<Order>;
 }
 ```
 
-Inject with `@Inject(ORDER_REPOSITORY)`. An interface is erased at runtime, so injecting by its type alone fails. The module exports the symbol when another module needs the port.
+Inject with `@Inject(ORDER_REPOSITORY)`. An interface is erased at runtime, so injecting by its type alone fails; never use a string token. The module exports the symbol when another module needs the port. Every method starts with `save`, `search` or `find`: `search*` may return `null` or an empty list, `find*` returns a result or throws a `*NotFoundException`. No `delete`. See [conventions.md](references/conventions.md#repository-port-shape).
 
 ## Rule 5: Repositories are dumb
 
 A repository maps rows to domain objects and back, and runs the query it is given. It never decides a status, a balance, a rejection or which orders count.
 
 ```typescript
-await this.orders.findByUser({ userId, statuses: ['FILLED', 'NEW'] }); // ✅ the caller picks
-await this.orders.findAvailableCash(userId); // ❌ SUM(size * price) in SQL: a rule in the repository
+await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] }); // good: the caller picks
+await this.orders.findAvailableCash(userId); // bad: SUM(size * price) in SQL, a rule in the repository
 ```
 
-Map in `private toDomain()` / `toRow()` methods; no mapper class. The domain never sees Prisma types: build `new Decimal(row.price.toString())` here; money is decimal.js, never `number`. Repositories join the current transaction (`@nestjs-cls/transactional`); they never open one.
+Mapping lives in `{Entity}PersistenceMapper` (`infrastructure/persistence/`), every field listed explicitly. The domain never sees Prisma types: build `new Decimal(row.price.toString())` there; money is decimal.js, never `number`. Repositories join the current transaction (`@nestjs-cls/transactional`); they never open one. Classify every line as M (mapping), B (business rule) or Q (business question on the port): only M may live in a repository. See [conventions.md](references/conventions.md#dumb-repositories).
 
 ## Rule 6: Use cases orchestrate, controllers call use cases
 
-A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot) and logs one outcome line per order. A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Money leaves as a string rounded once there, `ROUND_HALF_UP` to 2 decimals.
+A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Money leaves as a string rounded once there, `ROUND_HALF_UP` to 2 decimals.
 
 ```typescript
 // src/orders/application/use-cases/send-order.use-case.ts
@@ -130,37 +154,26 @@ export class SendOrderUseCase {
   ) {}
 
   public run(input: SendOrderInput): Promise<Order> {
-    return this.uow.run(input.userId, async () => { // per-user lock
-      const entries = await this.orders.findByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
-      const price = await this.marketData.findLatestClose(input.instrumentId);
+    return this.uow.run({ userId: input.userId, work: async () => { // per-user lock
+      const entries = await this.orders.searchByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
+      const price = await this.marketData.searchLatestClose(input.instrumentId);
       const summary = this.summarizeLedger.run(entries);
       const now = new Date();
       return this.orders.save(this.decideOrder.run({ input, summary, price, now }));
-    });
+    } });
   }
 }
 ```
 
 Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, DecideOrderService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, SummarizeLedgerService]` so `portfolio` can read the ledger.
 
-## Naming
+## Rule 7: Members, parameters and style
 
-| Kind | File | Class |
-|---|---|---|
-| Entity | `order.entity.ts` | `Order` |
-| Domain service | `summarize-ledger.service.ts` | `SummarizeLedgerService`, method `run` |
-| Port | `order.repository.ts` | `OrderRepository` + `ORDER_REPOSITORY` |
-| Exception | `order-not-found.exception.ts` | `OrderNotFoundException` |
-| Use case | `send-order.use-case.ts` | `SendOrderUseCase`, method `run` |
-| Repository | `prisma-order.repository.ts` | `PrismaOrderRepository` |
-| Controller, DTO | `orders.controller.ts`, `send-order.dto.ts` | `OrdersController`, `SendOrderDto` |
-
-## Rule 7: Members and parameters
-
-- Every class member states `public`, `private` or `protected`. Nest DI constructor parameter properties are `private readonly`.
-- A domain service or use case has exactly ONE public method, `run`. Entities may have several.
-- A method or function with more than one parameter takes one `params` object typed by a named interface (no inline object types). Destructure it on the FIRST line of the body, never in the signature. The id travels inside the object, never next to it. Exempt: NestJS DI constructors and inline arrow callbacks (`.map(({ x }) => ...)`).
+- Every class member states `public`, `private` or `protected`. Constructors carry no modifier; Nest DI constructor parameter properties are `private readonly`.
+- A domain service or use case has exactly ONE non-private method, named `run` (static and `protected` count). Entities may have several.
+- A method or function with more than one parameter takes one `params` object typed by a named interface (no inline object types). Destructure it on the FIRST line of the body, never in the signature. The id travels inside the object, never next to it. Exempt: constructors (NestJS DI, and exceptions that pass values straight to `super(...)`), controller handlers whose parameters are all Nest decorators, and inline arrow callbacks (`.map(({ x }) => ...)`).
 - Name a value before passing it: no inline `new Date()` or unexplained literals at the call site.
+- Name each invariant as a private method or a boolean (Named Guards). Group lines by meaning, with a blank line between steps (Blank Lines by Meaning).
 
 ```typescript
 // Bad: destructured in the signature, inline object type, positional id next to the object
@@ -174,7 +187,24 @@ public run(params: DecideOrderParams): Order {
 }
 ```
 
-ESLint enforces `public`/`private` on every member, one public method in services and use cases, and a single parameter on their methods. It cannot check "destructure on the first line": the review checks it.
+ESLint enforces `public`/`private` on every member, `run` as the only non-private method in services and use cases, a single parameter on their methods (spec files excluded), the port method prefixes, no string `@Inject` tokens, no `$transaction` in repositories, and the layer import boundaries. It cannot check "destructure on the first line", destructuring in the signature or inline object types: the review checks them.
+
+## Module Placement and Concurrency
+
+New infrastructure goes in a module named after its responsibility; a shared concern (transactions, clock) gets its own module. For an invariant, prefer a database constraint (translated into a domain exception in the repository); when it needs read-check-write over a user's orders, take the per-user lock through `UnitOfWork.run({ userId, work })`. See [conventions.md](references/conventions.md#concurrency-constraint-first-per-user-lock-second) and [conventions.md](references/conventions.md#module-placement).
+
+## Naming
+
+| Kind | File | Class |
+|---|---|---|
+| Entity | `order.entity.ts` | `Order` |
+| Domain service | `summarize-ledger.service.ts` | `SummarizeLedgerService`, method `run` |
+| Port | `order.repository.ts` | `OrderRepository` + `ORDER_REPOSITORY` |
+| Exception | `order-not-found.exception.ts` | `OrderNotFoundException` |
+| Use case | `send-order.use-case.ts` | `SendOrderUseCase`, method `run` |
+| Persistence mapper | `order-persistence.mapper.ts` | `OrderPersistenceMapper` |
+| Repository | `prisma-order.repository.ts` | `PrismaOrderRepository` |
+| Controller, DTO | `orders.controller.ts`, `send-order.dto.ts` | `OrdersController`, `SendOrderDto` |
 
 Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e-testing skill (HTTP and database).
 
@@ -190,4 +220,8 @@ Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e
 - [ ] Ports are an interface + Symbol, injected with @Inject(TOKEN)
 - [ ] Repositories only map and query
 - [ ] Controllers inject use cases only
+- [ ] Port methods start with `save`/`search`/`find`; `find*` never returns `null`
+- [ ] Entities mutate through `void` commands, expose `getX()`, keep money as `Decimal` inside and strings in `Primitives`
+- [ ] Invariants are named guards; blank lines separate steps
+- [ ] Per-user lock taken by every write path of a user's orders
 ```

@@ -55,7 +55,7 @@ Happy path + each error path + each domain edge case. **If you can't name the ri
 
 1. **Test behavior, not implementation** — Assert what happened (output, thrown error, resulting state), not how it happened
 2. **Classicist mocking** — Only mock ports/interfaces (repositories). Domain objects are always real
-3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockOrders, new SummarizeLedgerService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
+3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
 4. **One reason to fail** — Each test should fail for exactly one reason
 5. **No test should break on refactor** — If internals change but behavior stays the same, tests must pass
 
@@ -92,12 +92,15 @@ Mothers and mocks are **importable across modules** via `@/` imports.
 import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 
 const mockOrders: Mocked<OrderRepository> = {
-  findByUser: vi.fn(),
+  searchByUser: vi.fn(),
+  searchById: vi.fn(),
   findById: vi.fn(),
   save: vi.fn(),
 }
 
-const useCase = new SendOrderUseCase(mockOrders, new SummarizeLedgerService())
+const mockUow: Mocked<UnitOfWork> = { run: vi.fn() }
+const mockMarketData: Mocked<MarketDataRepository> = { searchLatestClose: vi.fn() }
+const useCase = new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -108,7 +111,7 @@ describe('run', () => {
     // Arrange
     const AVAILABLE_CASH = new Decimal('500.00')
     const input = OrderInputMother.marketBuyCosting('800.00')
-    mockOrders.findByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
+    mockOrders.searchByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
 
     // Act
     const result = await useCase.run(input)
@@ -161,6 +164,11 @@ When inline overrides are needed, assign them to **named constants** that descri
 ```typescript
 import { Order } from '@/orders/domain/entities/order.entity'
 
+interface LimitBuyParams {
+  price: string
+  size: number
+}
+
 export class OrderMother {
   public static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
 
@@ -188,7 +196,7 @@ Assert the result, not the interaction. A port call is worth asserting only when
 
 ```typescript
 // ❌ Implementation: breaks if the use case caches or batches reads
-expect(mockOrders.findByUser).toHaveBeenCalledTimes(1)
+expect(mockOrders.searchByUser).toHaveBeenCalledTimes(1)
 
 // ✅ Behavior: the order that was persisted
 expect(mockOrders.save).toHaveBeenCalledWith(
