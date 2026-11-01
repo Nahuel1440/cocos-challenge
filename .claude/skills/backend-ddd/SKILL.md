@@ -94,13 +94,18 @@ public cancel(now: Date): void {
 
 ## Rule 3: A rejection is a value, an error is an exception
 
-`REJECTED` is a stored order and a `201`: `DecideOrderService.run` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain` with a stable `code`; the global exception filter renders the error body. Never extend Nest's `HttpException` in `domain/`.
+`REJECTED` is a stored order and a `201`: `DecideOrderService.run` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain`, declare a stable `code` and an `ErrorCategory`, and carry no HTTP status; the global exception filter in `src/shared/infrastructure/http` maps the category to the status and renders the error body. Never extend Nest's `HttpException` in `domain/`.
 
 ```typescript
 // src/orders/domain/exceptions/order-not-found.exception.ts
+import { DomainException, ErrorCategory } from '@/shared/domain';
+
 export class OrderNotFoundException extends DomainException {
+  public readonly code = 'ORDER_NOT_FOUND';
+  public readonly category = ErrorCategory.NotFound;
+
   constructor(id: number) {
-    super('ORDER_NOT_FOUND', `Order ${id} not found`, 404);
+    super(`Order ${id} not found`);
   }
 }
 ```
@@ -195,7 +200,7 @@ public run(params: DecideOrderParams): Order {
 }
 ```
 
-ESLint enforces `public`/`private` on every member, `run` as the only non-private method in services and use cases, a single parameter on their methods (spec files excluded), no destructuring in a signature and no inline object types, the repository-port method prefixes and `find*` never returning `null`, no string `@Inject` tokens, no `$transaction` in repositories, no exported free functions in `domain/`, and the layer import boundaries. It cannot check "destructure on the first line", business questions hidden in a query name (`findAvailableCash`), or imports between modules: the review checks them.
+ESLint enforces `public`/`private` on every member, `run` as the only non-private method in services and use cases, a single parameter on their methods (spec files excluded), no destructuring in a signature and no inline object types, the repository-port method prefixes and `find*` never returning `null`, no string `@Inject` tokens, no `$transaction` in repositories, no exported free functions and no HTTP status in domain exceptions, and the layer import boundaries. It cannot check "destructure on the first line", business questions hidden in a query name (`findAvailableCash`), or imports between modules: the review checks them.
 
 ## Module Placement and Concurrency
 

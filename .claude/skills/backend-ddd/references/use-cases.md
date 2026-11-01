@@ -99,7 +99,7 @@ return this.uow.run({
 
 ## Error Handling
 
-Use cases throw domain exceptions. The global exception filter turns them into HTTP responses; the controller never catches.
+Use cases throw domain exceptions. The global exception filter maps each exception's `ErrorCategory` to the HTTP status (`NotFound` 404, `Conflict` 409, `Unprocessable` 422, `InvalidArgument` 400); the controller never catches.
 
 ```typescript
 const order = await this.orders.findById(input.orderId); // throws OrderNotFoundException on a miss

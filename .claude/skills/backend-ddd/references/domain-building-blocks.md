@@ -229,17 +229,33 @@ export interface OrderRepository {
 
 ## Domain Exception
 
-Custom exceptions for domain rule violations. They extend `DomainException` from `@/shared/domain` with a stable `code`, a message and the HTTP status; the global exception filter renders the error body.
+Custom exceptions for domain rule violations. They extend `DomainException` from `@/shared/domain`, declare a stable `code` and an `ErrorCategory`, and take the message from `super(message)`. The domain knows no HTTP status: the global exception filter (`src/shared/infrastructure/http`) maps the category to the status and renders the error body.
 
 ```typescript
 // src/orders/domain/exceptions/order-not-found.exception.ts
+import { DomainException, ErrorCategory } from '@/shared/domain';
+
 export class OrderNotFoundException extends DomainException {
+  public readonly code = 'ORDER_NOT_FOUND';
+  public readonly category = ErrorCategory.NotFound;
+
   constructor(id: number) {
-    super('ORDER_NOT_FOUND', `Order ${id} not found`, 404);
+    super(`Order ${id} not found`);
   }
 }
 ```
 
-`InvalidArgumentError` (shared, `extends DomainException`, code `INVALID_ARGUMENT`, status 400) is what guards and value objects throw for a malformed argument.
+`ErrorCategory` (`@/shared/domain`) and the status the filter gives each:
 
-**Naming:** `{Entity}{Reason}Exception`: `OrderNotFoundException`, `OrderNotCancellableException`. Every code is unique. Never extend Nest's `HttpException` in `domain/`. A `REJECTED` order is a value the domain returns, not an exception.
+| Category | HTTP status | Use for |
+|---|---|---|
+| `InvalidArgument` | 400 | the request could never succeed: malformed input, or an unknown or non-tradable instrument on send-order |
+| `NotFound` | 404 | the resource addressed by the route (`/orders/:id`) does not exist or belongs to another user |
+| `Conflict` | 409 | the state forbids the action (cancel a `FILLED` order) |
+| `Unprocessable` | 422 | the request is well formed but cannot be honoured (an `Idempotency-Key` reused with a different body) |
+
+`DomainException` declares `abstract readonly code` and `abstract readonly category` and never reads them in its constructor (field initializers run after `super()`). A server fault is not a category: an unexpected error becomes a `500` in the filter, never a domain exception. Add a category only when a new status is needed, and add it to the filter in the same change.
+
+`InvalidArgumentError` (shared, `extends DomainException`, code `INVALID_ARGUMENT`, category `InvalidArgument`) is what guards and value objects throw for a malformed argument.
+
+**Naming:** `{Entity}{Reason}Exception`: `OrderNotFoundException`, `OrderNotCancellableException`. Every code is unique. Lint rejects a numeric status passed to `super(...)` in a domain exception. Never extend Nest's `HttpException` in `domain/`. A `REJECTED` order is a value the domain returns, not an exception.
