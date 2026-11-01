@@ -7,7 +7,14 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { DomainException } from '@/shared/domain/exceptions/domain.exception';
+import { DomainException, ErrorCategory } from '@/shared/domain';
+
+const STATUS_BY_CATEGORY: Record<ErrorCategory, number> = {
+  [ErrorCategory.InvalidArgument]: HttpStatus.BAD_REQUEST,
+  [ErrorCategory.NotFound]: HttpStatus.NOT_FOUND,
+  [ErrorCategory.Conflict]: HttpStatus.CONFLICT,
+  [ErrorCategory.Unprocessable]: HttpStatus.UNPROCESSABLE_ENTITY,
+};
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -42,7 +49,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
     if (exception instanceof DomainException) {
-      const { statusCode, code, message } = exception;
+      const { code, message, category } = exception;
+      const statusCode = STATUS_BY_CATEGORY[category];
       response
         .status(statusCode)
         .json({ statusCode, code, message, requestId });

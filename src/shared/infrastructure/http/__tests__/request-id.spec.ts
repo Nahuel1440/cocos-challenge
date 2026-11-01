@@ -8,13 +8,13 @@ import {
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '@/app.module';
-import { DomainException } from '@/shared/domain/exceptions/domain.exception';
+import { UnknownUserException } from '@/shared/domain';
 
 @Controller('boom')
 class BoomController {
   @Get()
   public boom() {
-    throw new DomainException('UNKNOWN_USER', 'User 999 does not exist');
+    throw new UnknownUserException('999');
   }
 
   @Get('ok')

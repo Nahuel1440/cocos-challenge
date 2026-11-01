@@ -1,4 +1,5 @@
 import type { ExecutionContext } from '@nestjs/common';
+import { ErrorCategory } from '@/shared/domain';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -39,7 +40,7 @@ describe('UserIdGuard', () => {
 
     await expect(guard.canActivate(contextWith({}))).rejects.toMatchObject({
       code: 'MISSING_USER_ID',
-      statusCode: 400,
+      category: ErrorCategory.InvalidArgument,
     });
   });
 
@@ -48,7 +49,10 @@ describe('UserIdGuard', () => {
 
     await expect(
       guard.canActivate(contextWith({ 'x-user-id': 'abc' })),
-    ).rejects.toMatchObject({ code: 'INVALID_USER_ID', statusCode: 400 });
+    ).rejects.toMatchObject({
+      code: 'INVALID_USER_ID',
+      category: ErrorCategory.InvalidArgument,
+    });
   });
 
   it('should reject with UNKNOWN_USER when no user exists for the X-User-Id', async () => {
@@ -56,7 +60,10 @@ describe('UserIdGuard', () => {
 
     await expect(
       guard.canActivate(contextWith({ 'x-user-id': '999' })),
-    ).rejects.toMatchObject({ code: 'UNKNOWN_USER', statusCode: 400 });
+    ).rejects.toMatchObject({
+      code: 'UNKNOWN_USER',
+      category: ErrorCategory.InvalidArgument,
+    });
   });
 
   it('should allow the request and expose the user id when the user exists', async () => {
@@ -74,6 +81,9 @@ describe('UserIdGuard', () => {
 
     await expect(
       guard.canActivate(contextWith({ 'x-user-id': '2147483648' })),
-    ).rejects.toMatchObject({ code: 'INVALID_USER_ID', statusCode: 400 });
+    ).rejects.toMatchObject({
+      code: 'INVALID_USER_ID',
+      category: ErrorCategory.InvalidArgument,
+    });
   });
 });

@@ -1,9 +1,6 @@
-export class DomainException extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly statusCode = 400,
-  ) {
-    super(message);
-  }
+import type { ErrorCategory } from '@/shared/domain/exceptions/error-category';
+
+export abstract class DomainException extends Error {
+  public abstract readonly code: string;
+  public abstract readonly category: ErrorCategory;
 }

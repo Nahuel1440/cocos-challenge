@@ -5,7 +5,7 @@ import {
   type ArgumentsHost,
 } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { DomainException } from '@/shared/domain/exceptions/domain.exception';
+import { UnknownUserException } from '@/shared/domain';
 import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
 
 const render = (error: unknown) => {
@@ -30,9 +30,7 @@ const render = (error: unknown) => {
 
 describe('HttpExceptionFilter', () => {
   it('should render a DomainException as { statusCode, code, message }', () => {
-    const { status, body } = render(
-      new DomainException('UNKNOWN_USER', 'User 999 does not exist'),
-    );
+    const { status, body } = render(new UnknownUserException('999'));
 
     expect(status).toBe(400);
     expect(body).toEqual({
