@@ -237,6 +237,7 @@ describe('run', () => {
 
     // Assert
     expect(portfolio.positions[0]?.quantity).toBe(-10);
+    expect(portfolio.positions[0]?.averagePrice).toBeNull();
     expect(portfolio.positions[0]?.marketValue).toBe('-1200.00');
     expect(portfolio.positions[0]?.totalReturnPercentage).toBeNull();
   });

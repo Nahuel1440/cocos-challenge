@@ -37,6 +37,8 @@ export class BuildPortfolioService {
 
       const price = latestPrices.get(instrumentId);
       const marketValue = price?.times(holding.quantity);
+      const { averagePrice } = holding;
+      const hasReturn = price !== undefined && averagePrice !== null;
       if (marketValue) totalValue = totalValue.plus(marketValue);
 
       positions.push({
@@ -46,15 +48,14 @@ export class BuildPortfolioService {
           ? this.round(holding.averagePrice)
           : null,
         marketValue: marketValue ? this.round(marketValue) : null,
-        totalReturnPercentage:
-          price && holding.averagePrice
-            ? this.round(
-                this.returnPercentage({
-                  price,
-                  averagePrice: holding.averagePrice,
-                }),
-              )
-            : null,
+        totalReturnPercentage: hasReturn
+          ? this.round(
+              this.returnPercentage({
+                price,
+                averagePrice,
+              }),
+            )
+          : null,
       });
     }
 
@@ -70,6 +71,6 @@ export class BuildPortfolioService {
   }
 
   private round(value: Decimal): string {
-    return value.toFixed(2, Decimal.ROUND_HALF_UP);
+    return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
   }
 }
