@@ -60,6 +60,12 @@ const PORT_PARAMS_OBJECT = {
   message:
     'params-object: a port method with more than one parameter takes one params object typed by a named interface.',
 };
+const EXCEPTION_CLASS = 'ClassDeclaration[superClass.name=/Exception$/]';
+const NO_HTTP_STATUS = {
+  selector: `${EXCEPTION_CLASS} :matches(CallExpression[callee.type='Super'] > Literal[raw=/^[1-5][0-9][0-9]$/], PropertyDefinition[key.name=/^(status|httpStatus|statusCode)$/], AssignmentExpression > MemberExpression.left[property.name=/^(status|httpStatus|statusCode)$/])`,
+  message:
+    'no-http-status: a domain exception declares code and ErrorCategory, never an HTTP status; the exception filter maps category to status.',
+};
 const NO_FREE_FUNCTIONS = {
   selector:
     'ExportNamedDeclaration > FunctionDeclaration, ExportDefaultDeclaration > FunctionDeclaration',
@@ -141,7 +147,10 @@ export default tseslint.config(
   {
     files: ['src/**/domain/**/*.ts'],
     rules: {
-      'no-restricted-syntax': restrictedSyntax(NO_FREE_FUNCTIONS),
+      'no-restricted-syntax': restrictedSyntax(
+        NO_FREE_FUNCTIONS,
+        NO_HTTP_STATUS,
+      ),
       'no-restricted-imports': restrictedImports(
         ...NEST_AND_PRISMA,
         ...OUTER_LAYERS(['application', 'infrastructure']),
@@ -166,6 +175,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': restrictedSyntax(
         NO_FREE_FUNCTIONS,
+        NO_HTTP_STATUS,
         PORT_METHOD_PREFIX,
         FIND_NEVER_NULL,
         PORT_PARAMS_OBJECT,
@@ -185,6 +195,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': restrictedSyntax(
         NO_FREE_FUNCTIONS,
+        NO_HTTP_STATUS,
         ...RUN_ONLY_SELECTORS,
       ),
     },
