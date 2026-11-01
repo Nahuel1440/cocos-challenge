@@ -1,11 +1,11 @@
 ---
 name: e2e-testing
-description: "Writes Vitest + supertest functional tests for the Cocos API over HTTP against a real Postgres (Testcontainers) with the seed. MUST be used when writing or editing `test/**/*.e2e-spec.ts` files (T6, T8, T9, T11), testing an endpoint or HTTP flow, or when the user says 'e2e test', 'functional test', 'test this endpoint'. Do NOT use for pure domain logic (unit-testing skill)."
+description: "Writes Vitest + supertest functional tests for the Cocos API over HTTP against a real Postgres (Testcontainers) with the seed. MUST be used when writing or editing `test/**/*.e2e-spec.ts` files, testing an endpoint or HTTP flow, or when the user says 'e2e test', 'functional test', 'test this endpoint'. Do NOT use for pure domain logic (unit-testing skill)."
 ---
 
-Decision D-19: tests go over HTTP (`supertest`) on a Testcontainers Postgres, truncating and reloading the seed between tests. Run with `npm run test:e2e` (`vitest.config.e2e.mts`, glob `test/**/*.e2e-spec.ts`). Docker is required.
+Tests go over HTTP (`supertest`) on a Testcontainers Postgres, truncating and reloading the seed between tests. Run with `npm run test:e2e` (`vitest.config.e2e.mts`, glob `test/**/*.e2e-spec.ts`). Docker is required.
 
-## Harness (built in T3)
+## Harness
 
 | Piece | Role |
 |---|---|
@@ -13,7 +13,7 @@ Decision D-19: tests go over HTTP (`supertest`) on a Testcontainers Postgres, tr
 | `test/support/truncate-all-tables.ts` | Empties every table. Call it in `beforeEach`. |
 | `test/support/reload-seed.ts` | Reloads the seed after the truncate. Call it in `beforeEach`. |
 
-Boot the real `AppModule` with the same global pipes and filters as `main.ts`. If a test app skips them, validation and error mapping vanish silently and 400s turn into 500s. TASKS lists no app-boot helper: if none exists yet, STOP and ask the user where it lives. `supertest` is not in `package.json` yet; if it is still missing, STOP and tell the user.
+Boot the real `AppModule` with the same global pipes and filters as `main.ts`. If a test app skips them, validation and error mapping vanish silently and 400s turn into 500s. If no app-boot helper exists yet, STOP and ask the user where it lives. `supertest` is not in `package.json` yet; if it is still missing, STOP and tell the user.
 
 ## Pattern
 
@@ -46,11 +46,11 @@ describe('POST /orders (e2e)', () => {
 ## What to cover
 
 - 1–2 critical flows per endpoint. Push branch coverage down to unit tests.
-- The `X-User-Id` check on every route: missing or invalid → `400` (D-22).
-- One input-validation `400` per endpoint (D-8, D-23).
-- Status codes as SPEC says: send-order `201` for `FILLED`, `NEW` and `REJECTED` (D-17); cancel `200`, `409`, `404` (D-18).
-- NFR-1: fire concurrent orders with `Promise.all` and assert cash or shares never go below zero. Mind that the seed has user 1 with holding −10 on instrument 31 (SPEC, seed pitfalls).
-- Money in responses is a decimal string (D-23). Assert strings, never numbers.
+- The `X-User-Id` check on every route: missing or invalid → `400`.
+- One input-validation `400` per endpoint.
+- Status codes as SPEC says: send-order `201` for `FILLED`, `NEW` and `REJECTED`; cancel `200`, `409`, `404`.
+- Concurrency: fire concurrent orders with `Promise.all` and assert cash or shares never go below zero. Mind that the seed has user 1 with holding −10 on instrument 31 (SPEC, seed pitfalls).
+- Money in responses is a decimal string. Assert strings, never numbers.
 
 ## Anti-patterns
 
