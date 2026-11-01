@@ -55,7 +55,7 @@ Happy path + each error path + each domain edge case. **If you can't name the ri
 
 1. **Test behavior, not implementation** — Assert what happened (output, thrown error, resulting state), not how it happened
 2. **Classicist mocking** — Only mock ports/interfaces (repositories). Domain objects are always real
-3. **Manual instantiation** — Create services with `new MyService(mockRepo)`; use `Test.createTestingModule` only when the test needs Nest DI
+3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockOrders, new LedgerService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
 4. **One reason to fail** — Each test should fail for exactly one reason
 5. **No test should break on refactor** — If internals change but behavior stays the same, tests must pass
 
@@ -66,14 +66,20 @@ Tests are co-located with the code they test, in `__tests__/`, as `*.spec.ts` (v
 ```
 src/{module}/
 ├── domain/
-│   ├── order.ts
-│   └── __tests__/
-│       ├── order.spec.ts
-│       └── order.mother.ts
+│   ├── entities/
+│   │   ├── order.entity.ts
+│   │   └── __tests__/
+│   │       ├── order.entity.spec.ts
+│   │       └── order.mother.ts
+│   └── services/
+│       ├── ledger.service.ts
+│       └── __tests__/
+│           └── ledger.service.spec.ts
 ├── application/
-│   ├── send-order.service.ts
-│   └── __tests__/
-│       └── send-order.service.spec.ts
+│   └── use-cases/
+│       ├── send-order.use-case.ts
+│       └── __tests__/
+│           └── send-order.use-case.spec.ts
 ```
 
 Mothers and mocks are **importable across modules** via `@/` imports.
@@ -85,12 +91,13 @@ Mothers and mocks are **importable across modules** via `@/` imports.
 ```typescript
 import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 
-const mockLedger: Mocked<LedgerRepository> = {
+const mockOrders: Mocked<OrderRepository> = {
   findByUser: vi.fn(),
+  findById: vi.fn(),
   save: vi.fn(),
 }
 
-const service = new SendOrderService(mockLedger)
+const useCase = new SendOrderUseCase(mockOrders, new LedgerService())
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -101,10 +108,10 @@ describe('run', () => {
     // Arrange
     const AVAILABLE_CASH = new Decimal('500.00')
     const input = OrderInputMother.marketBuyCosting('800.00')
-    mockLedger.findByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
+    mockOrders.findByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
 
     // Act
-    const result = await service.run(input)
+    const result = await useCase.run(input)
 
     // Assert
     expect(result.status).toBe('REJECTED')
@@ -113,7 +120,7 @@ describe('run', () => {
 })
 ```
 
-- Name the variable under test descriptively (`service`, `calculator`, `validator`) — avoid generic `sut`
+- Name the variable under test descriptively (`useCase`, `ledger`, `decision`) — avoid generic `sut`
 - Mocks and service instantiated at **module level**, reset with `vi.resetAllMocks()` in `beforeEach`
 - One `describe` per method being tested
 - **Named constants** for expected values (`AVAILABLE_CASH`) — referenced in both arrange and assert for clarity
@@ -152,7 +159,7 @@ expect(LEDGER_WITH_1000_CASH.availableCash()).toEqual(new Decimal('1000.00'))
 When inline overrides are needed, assign them to **named constants** that describe the scenario, so the test reads top-down without mental math.
 
 ```typescript
-import { Order } from '@/orders/domain/order'
+import { Order } from '@/orders/domain/entities/order.entity'
 
 export class OrderMother {
   static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
@@ -178,7 +185,7 @@ Assert the result, not the interaction. A port call is worth asserting only when
 
 ```typescript
 // ❌ Implementation: breaks if the use case caches or batches reads
-expect(mockLedger.findByUser).toHaveBeenCalledTimes(1)
+expect(mockOrders.findByUser).toHaveBeenCalledTimes(1)
 
 // ✅ Behavior: the order that was persisted
 expect(mockOrders.save).toHaveBeenCalledWith(
