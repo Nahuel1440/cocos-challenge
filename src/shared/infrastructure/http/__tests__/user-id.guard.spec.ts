@@ -1,6 +1,10 @@
 import type { ExecutionContext } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { describe, expect, it, vi } from 'vitest';
-import type { UserRepository } from '@/shared/domain/ports/user.repository';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '@/shared/domain/ports/user.repository';
 import { UserIdGuard } from '@/shared/infrastructure/http/user-id.guard';
 
 const contextFor = (request: object) =>
@@ -16,6 +20,20 @@ const usersWith = (exists: boolean): UserRepository => ({
 });
 
 describe('UserIdGuard', () => {
+  it('should resolve the guard from a Nest module that provides USER_REPOSITORY', async () => {
+    const users = usersWith(true);
+    const moduleRef = await Test.createTestingModule({
+      providers: [UserIdGuard, { provide: USER_REPOSITORY, useValue: users }],
+    }).compile();
+
+    const guard = moduleRef.get(UserIdGuard);
+
+    await expect(
+      guard.canActivate(contextWith({ 'x-user-id': '1' })),
+    ).resolves.toBe(true);
+    expect(users.exists).toHaveBeenCalledWith(1);
+  });
+
   it('should reject with MISSING_USER_ID when the X-User-Id header is absent', async () => {
     const guard = new UserIdGuard(usersWith(true));
 

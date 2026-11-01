@@ -1,13 +1,18 @@
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DomainException } from '@/shared/domain/exceptions/domain.exception';
-import type { UserRepository } from '@/shared/domain/ports/user.repository';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '@/shared/domain/ports/user.repository';
 
 const MAX_INT = 2147483647;
 
 @Injectable()
 export class UserIdGuard implements CanActivate {
-  constructor(private readonly users: UserRepository) {}
+  constructor(
+    @Inject(USER_REPOSITORY) private readonly users: UserRepository,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
