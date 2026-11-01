@@ -91,4 +91,25 @@ describe('HttpExceptionFilter', () => {
     );
     expect(JSON.stringify(body)).not.toContain(error.stack);
   });
+
+  it('should render a plain error with a 4xx status as a 500 and log its stack', () => {
+    const error = Object.assign(new Error('relation "users" does not exist'), {
+      status: 404,
+      statusCode: 404,
+    });
+
+    const { status, body, log } = render(error);
+
+    expect(status).toBe(500);
+    expect(body).toEqual({
+      statusCode: 500,
+      code: 'INTERNAL_ERROR',
+      message: 'Internal server error',
+      requestId: 'req-1',
+    });
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: error }),
+      expect.any(String),
+    );
+  });
 });
