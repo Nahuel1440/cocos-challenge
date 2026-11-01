@@ -94,7 +94,7 @@ export class DecideOrderService {
   private findRejection(params: SizedOrderParams): RejectionReason | null {
     const { input, size } = params;
 
-    if (input.type === 'MARKET' && input.amount !== null && size === 0) {
+    if (this.buysNoShare(params)) {
       return 'AMOUNT_BELOW_ONE_SHARE';
     }
     if (input.side === 'BUY' && this.exceedsAvailableCash(params)) {
@@ -105,6 +105,13 @@ export class DecideOrderService {
     }
 
     return null;
+  }
+
+  private buysNoShare(params: SizedOrderParams): boolean {
+    const { input, size } = params;
+    const cameWithAmount = input.amount !== null;
+
+    return input.type === 'MARKET' && cameWithAmount && size === 0;
   }
 
   private exceedsAvailableCash(params: SizedOrderParams): boolean {
