@@ -55,7 +55,7 @@ Happy path + each error path + each domain edge case. **If you can't name the ri
 
 1. **Test behavior, not implementation** — Assert what happened (output, thrown error, resulting state), not how it happened
 2. **Classicist mocking** — Only mock ports/interfaces (repositories). Domain objects are always real
-3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockOrders, new LedgerService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
+3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
 4. **One reason to fail** — Each test should fail for exactly one reason
 5. **No test should break on refactor** — If internals change but behavior stays the same, tests must pass
 
@@ -72,9 +72,9 @@ src/{module}/
 │   │       ├── order.entity.spec.ts
 │   │       └── order.mother.ts
 │   └── services/
-│       ├── ledger.service.ts
+│       ├── summarize-ledger.service.ts
 │       └── __tests__/
-│           └── ledger.service.spec.ts
+│           └── summarize-ledger.service.spec.ts
 ├── application/
 │   └── use-cases/
 │       ├── send-order.use-case.ts
@@ -92,15 +92,20 @@ Mothers and mocks are **importable across modules** via `@/` imports.
 import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest'
 
 const mockOrders: Mocked<OrderRepository> = {
-  findByUser: vi.fn(),
+  searchByUser: vi.fn(),
+  searchById: vi.fn(),
   findById: vi.fn(),
   save: vi.fn(),
 }
 
-const useCase = new SendOrderUseCase(mockOrders, new LedgerService())
+const mockUow: Mocked<UnitOfWork> = { run: vi.fn() }
+const mockMarketData: Mocked<MarketDataRepository> = { searchLatestClose: vi.fn() }
+const useCase = new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())
 
 beforeEach(() => {
   vi.resetAllMocks()
+  mockUow.run.mockImplementation(({ work }) => work())
+  mockOrders.save.mockImplementation(async (order) => order)
 })
 
 describe('run', () => {
@@ -108,19 +113,19 @@ describe('run', () => {
     // Arrange
     const AVAILABLE_CASH = new Decimal('500.00')
     const input = OrderInputMother.marketBuyCosting('800.00')
-    mockOrders.findByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
+    mockOrders.searchByUser.mockResolvedValue(LedgerEntryMother.withCash(AVAILABLE_CASH))
 
     // Act
     const result = await useCase.run(input)
 
     // Assert
-    expect(result.status).toBe('REJECTED')
-    expect(result.rejectionReason).toBe('INSUFFICIENT_FUNDS')
+    expect(result.getStatus()).toBe('REJECTED')
+    expect(result.toPrimitives().rejectionReason).toBe('INSUFFICIENT_FUNDS')
   })
 })
 ```
 
-- Name the variable under test descriptively (`useCase`, `ledger`, `decision`) — avoid generic `sut`
+- Name the variable under test descriptively (`useCase`, `summarizeLedger`, `decideOrder`) — avoid generic `sut`
 - Mocks and service instantiated at **module level**, reset with `vi.resetAllMocks()` in `beforeEach`
 - One `describe` per method being tested
 - **Named constants** for expected values (`AVAILABLE_CASH`) — referenced in both arrange and assert for clarity
@@ -142,18 +147,16 @@ Valid-by-default test objects. Callers override only what their test cares about
 
 ```typescript
 // ❌ BAD — relies on knowing Mother defaults
-const ledger = LedgerMother.create()
-expect(ledger.availableCash()).toEqual(new Decimal('1000.00')) // Where does 1000 come from?
+const entries = LedgerEntryMother.create()
+expect(summarizeLedger.run(entries).cash).toEqual(new Decimal('1000.00')) // Where does 1000 come from?
 
 // ⚠️ OK but verbose — explicit overrides, hard to scan
-const ledger = LedgerMother.create({
-  entries: [EntryMother.cashIn({ amount: new Decimal('1000.00') })],
-})
+const entries = [LedgerEntryMother.cashIn({ amount: new Decimal('1000.00') })]
 
 // ✅ GOOD — semantic Mother method, test reads like a sentence
-const LEDGER_WITH_1000_CASH = LedgerMother.withCash(new Decimal('1000.00'))
+const ENTRIES_WITH_1000_CASH = LedgerEntryMother.withCash(new Decimal('1000.00'))
 
-expect(LEDGER_WITH_1000_CASH.availableCash()).toEqual(new Decimal('1000.00'))
+expect(summarizeLedger.run(ENTRIES_WITH_1000_CASH).cash).toEqual(new Decimal('1000.00'))
 ```
 
 When inline overrides are needed, assign them to **named constants** that describe the scenario, so the test reads top-down without mental math.
@@ -161,11 +164,19 @@ When inline overrides are needed, assign them to **named constants** that descri
 ```typescript
 import { Order } from '@/orders/domain/entities/order.entity'
 
-export class OrderMother {
-  static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
+interface LimitBuyParams {
+  price: string
+  size: number
+}
 
-  static limitBuy(price: string, size: number): Order { /* ... */ }
-  static filledSell(size: number): Order { /* ... */ }
+export class OrderMother {
+  public static create(overrides?: Partial<OrderPrimitives>): Order { /* valid defaults, built with Order.fromPrimitives */ }
+
+  public static limitBuy(params: LimitBuyParams): Order {
+    const { price, size } = params;
+    /* ... */
+  }
+  public static filledSell(size: number): Order { /* ... */ }
 }
 ```
 
@@ -185,7 +196,7 @@ Assert the result, not the interaction. A port call is worth asserting only when
 
 ```typescript
 // ❌ Implementation: breaks if the use case caches or batches reads
-expect(mockOrders.findByUser).toHaveBeenCalledTimes(1)
+expect(mockOrders.searchByUser).toHaveBeenCalledTimes(1)
 
 // ✅ Behavior: the order that was persisted
 expect(mockOrders.save).toHaveBeenCalledWith(
@@ -212,9 +223,9 @@ Start with `should`, describe the **outcome**, include the **condition**. A fail
 | Anti-Pattern | BAD | GOOD |
 |---|---|---|
 | **Implementation details** | `expect(mock).toHaveBeenCalledBefore(otherMock)` | `expect(result.cash).toEqual(expected)` |
-| **Mock overload** | `{ debit: vi.fn().mockReturnValue(true) }` | `LedgerMother.withCash('1000.00')` |
+| **Mock overload** | `{ debit: vi.fn().mockReturnValue(true) }` | `LedgerEntryMother.withCash('1000.00')` |
 | **Meaningless assertion** | `expect(mockRepo.save).toHaveBeenCalled()` | `expect(mockRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'FILLED' }))` |
-| **Shared mutable state** | Ledger created outside `it()` blocks | Fresh instance per test via Mother |
+| **Shared mutable state** | Entries created outside `it()` blocks | Fresh instance per test via Mother |
 | **Trivial test** | Testing a simple getter returns what was set | Skip — no logic to verify |
 | **Implicit Mother defaults** | `OrderMother.create()` then assert on default values | Use semantic Mother methods or named constants |
 | **Verbose inline overrides** | Complex `Mother.create({ ... })` with many params inline | Create a semantic Mother method and assign to a named constant |
