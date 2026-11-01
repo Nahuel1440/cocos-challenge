@@ -1,7 +1,7 @@
 import type { ExecutionContext } from '@nestjs/common';
-import { ErrorCategory } from '@/shared/domain';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it, vi } from 'vitest';
+import { ErrorCategory } from '@/shared/domain';
 import {
   USER_REPOSITORY,
   type UserRepository,
