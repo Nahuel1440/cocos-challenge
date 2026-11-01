@@ -30,7 +30,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       });
       return;
     }
-    if (exception instanceof HttpException) {
+    // 5xx HttpException falls through: generic body, logged with its stack.
+    if (exception instanceof HttpException && exception.getStatus() < 500) {
       const statusCode = exception.getStatus();
       response.status(statusCode).json({
         statusCode,
@@ -67,7 +68,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // Body-parser fails before pino-http: no access line, so log it here.
       const context = { requestId, status, type: httpError.type };
       if (request.log) request.log.warn(context, exception.message);
-      else new Logger(HttpExceptionFilter.name).warn({ ...context });
+      else
+        new Logger(HttpExceptionFilter.name).warn({
+          ...context,
+          message: exception.message,
+        });
       response.status(status).json({
         statusCode: status,
         code: HttpStatus[status] ?? 'HTTP_ERROR',

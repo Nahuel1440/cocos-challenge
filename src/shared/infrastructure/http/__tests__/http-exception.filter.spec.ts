@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  InternalServerErrorException,
   NotFoundException,
   type ArgumentsHost,
 } from '@nestjs/common';
@@ -97,6 +98,24 @@ describe('HttpExceptionFilter', () => {
       status: 404,
       statusCode: 404,
     });
+
+    const { status, body, log } = render(error);
+
+    expect(status).toBe(500);
+    expect(body).toEqual({
+      statusCode: 500,
+      code: 'INTERNAL_ERROR',
+      message: 'Internal server error',
+      requestId: 'req-1',
+    });
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: error }),
+      expect.any(String),
+    );
+  });
+
+  it('should render a 5xx HttpException as a generic 500 and log its stack', () => {
+    const error = new InternalServerErrorException('db down at db:5432');
 
     const { status, body, log } = render(error);
 
