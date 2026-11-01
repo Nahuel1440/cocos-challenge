@@ -92,7 +92,7 @@ export class DecideOrderService {
   }
 
   private findRejection(params: SizedOrderParams): RejectionReason | null {
-    const { input, size } = params;
+    const { input } = params;
 
     if (this.buysNoShare(params)) {
       return 'AMOUNT_BELOW_ONE_SHARE';
