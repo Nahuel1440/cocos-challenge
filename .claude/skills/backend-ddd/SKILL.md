@@ -144,7 +144,7 @@ Mapping lives in `{Entity}PersistenceMapper` (`infrastructure/persistence/`), ev
 
 ## Rule 6: Use cases orchestrate, controllers call use cases
 
-A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case, then a presenter: no repository, no domain service, no math, no `try/catch`. Domain services keep full precision and return `Decimal`; they never round or build strings. The currency scale is a domain fact: `MONEY_SCALE = 2` (ARS minor unit) lives in `@/shared/domain`. The presenter in `<module>/infrastructure/http/` shapes the JSON and turns each `Decimal` into a string with the shared `toDecimalString` helper (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer rounds.
+A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case, then a presenter when the wire shape differs from `toPrimitives()`: no repository, no domain service, no math, no `try/catch`. Domain services keep full precision and return `Decimal`; they never round or build strings. The currency scale is a domain fact: `MONEY_SCALE = 2` (ARS minor unit) lives in `@/shared/domain`. The presenter in `<module>/infrastructure/http/` shapes the JSON and turns each `Decimal` into a string with the shared `toDecimalString` helper (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer rounds.
 
 ```typescript
 // src/orders/application/use-cases/send-order.use-case.ts
@@ -217,6 +217,8 @@ New infrastructure goes in a module named after its responsibility; a shared con
 | Use case | `send-order.use-case.ts` | `SendOrderUseCase`, method `run` |
 | Persistence mapper | `order-persistence.mapper.ts` | `OrderPersistenceMapper` |
 | Repository | `prisma-order.repository.ts` | `PrismaOrderRepository` |
+| Presenter | `order.presenter.ts` | `OrderPresenter` |
+| Decimal helper | `to-decimal-string.ts` | `toDecimalString` |
 | Controller, DTO | `orders.controller.ts`, `send-order.dto.ts` | `OrdersController`, `SendOrderDto` |
 
 Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e-testing skill (HTTP and database).
@@ -233,6 +235,7 @@ Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e
 - [ ] Ports are an interface + Symbol, injected with @Inject(TOKEN)
 - [ ] Repositories only map and query
 - [ ] Controllers inject use cases only
+- [ ] Money is rounded only in the presenter via `toDecimalString`; the domain keeps `Decimal`
 - [ ] Port methods start with `save`/`search`/`find`; `find*` never returns `null`
 - [ ] Entities mutate through `void` commands, expose `getX()`, keep money as `Decimal` inside and strings in `Primitives`
 - [ ] Invariants are named guards; blank lines separate steps
