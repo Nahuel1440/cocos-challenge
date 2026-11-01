@@ -41,14 +41,14 @@ src/<module>/
 │   └── use-cases/       # SendOrderUseCase, CancelOrderUseCase
 ├── infrastructure/
 │   ├── persistence/     # PrismaOrderRepository
-│   └── http/            # OrdersController, SendOrderDto
+│   └── http/            # OrdersController, SendOrderDto, OrderPresenter
 └── <module>.module.ts
 ```
 
 Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` with the same layout. Create only the folders a module uses: `instruments` needs `ports/`, `use-cases/`, `persistence/` and `http/`, nothing else.
 
 - `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`, `UnitOfWork` + `UNIT_OF_WORK` (transaction and per-user lock).
-- `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id.
+- `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id, `to-decimal-string.ts`.
 
 | Layer | May import | Never imports |
 |---|---|---|
@@ -144,7 +144,7 @@ Mapping lives in `{Entity}PersistenceMapper` (`infrastructure/persistence/`), ev
 
 ## Rule 6: Use cases orchestrate, controllers call use cases
 
-A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Money leaves as a string rounded once there, `ROUND_HALF_UP` to 2 decimals.
+A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case, then a presenter: no repository, no domain service, no math, no `try/catch`. Domain services keep full precision and return `Decimal`; they never round or build strings. The currency scale is a domain fact: `MONEY_SCALE = 2` (ARS minor unit) lives in `@/shared/domain`. The presenter in `<module>/infrastructure/http/` shapes the JSON and turns each `Decimal` into a string with the shared `toDecimalString` helper (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer rounds.
 
 ```typescript
 // src/orders/application/use-cases/send-order.use-case.ts
