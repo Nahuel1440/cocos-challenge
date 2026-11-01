@@ -55,7 +55,7 @@ Happy path + each error path + each domain edge case. **If you can't name the ri
 
 1. **Test behavior, not implementation** — Assert what happened (output, thrown error, resulting state), not how it happened
 2. **Classicist mocking** — Only mock ports/interfaces (repositories). Domain objects are always real
-3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockOrders, new LedgerService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
+3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockOrders, new SummarizeLedgerService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
 4. **One reason to fail** — Each test should fail for exactly one reason
 5. **No test should break on refactor** — If internals change but behavior stays the same, tests must pass
 
@@ -72,9 +72,9 @@ src/{module}/
 │   │       ├── order.entity.spec.ts
 │   │       └── order.mother.ts
 │   └── services/
-│       ├── ledger.service.ts
+│       ├── summarize-ledger.service.ts
 │       └── __tests__/
-│           └── ledger.service.spec.ts
+│           └── summarize-ledger.service.spec.ts
 ├── application/
 │   └── use-cases/
 │       ├── send-order.use-case.ts
@@ -97,7 +97,7 @@ const mockOrders: Mocked<OrderRepository> = {
   save: vi.fn(),
 }
 
-const useCase = new SendOrderUseCase(mockOrders, new LedgerService())
+const useCase = new SendOrderUseCase(mockOrders, new SummarizeLedgerService())
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -120,7 +120,7 @@ describe('run', () => {
 })
 ```
 
-- Name the variable under test descriptively (`useCase`, `ledger`, `decision`) — avoid generic `sut`
+- Name the variable under test descriptively (`useCase`, `summarizeLedger`, `decideOrder`) — avoid generic `sut`
 - Mocks and service instantiated at **module level**, reset with `vi.resetAllMocks()` in `beforeEach`
 - One `describe` per method being tested
 - **Named constants** for expected values (`AVAILABLE_CASH`) — referenced in both arrange and assert for clarity
@@ -162,10 +162,13 @@ When inline overrides are needed, assign them to **named constants** that descri
 import { Order } from '@/orders/domain/entities/order.entity'
 
 export class OrderMother {
-  static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
+  public static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
 
-  static limitBuy(price: string, size: number): Order { /* ... */ }
-  static filledSell(size: number): Order { /* ... */ }
+  public static limitBuy(params: LimitBuyParams): Order {
+    const { price, size } = params;
+    /* ... */
+  }
+  public static filledSell(size: number): Order { /* ... */ }
 }
 ```
 

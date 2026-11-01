@@ -12,7 +12,7 @@ src/<module>/
 ├── domain/
 │   ├── entities/        # Order: identity + state transitions
 │   ├── value-objects/   # only when a value has its own invariant (none today)
-│   ├── services/        # LedgerService, OrderDecisionService: the business rules
+│   ├── services/        # SummarizeLedgerService, DecideOrderService: the business rules
 │   ├── ports/           # OrderRepository interface + ORDER_REPOSITORY symbol
 │   └── exceptions/      # OrderNotFoundException
 ├── application/
@@ -38,12 +38,12 @@ Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/doma
 
 ## Rule 1: Business rules live in domain services
 
-A rule over several orders or several inputs is a method of a class in `domain/services/`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has three: `LedgerService.summarize` (cash, holdings, average price), `OrderDecisionService.decide` (`FILLED`, `NEW` or `REJECTED`), `PortfolioService.build` (positions and returns).
+A rule over several orders or several inputs is a domain service: a class in `domain/services/` named `{Verb}{Noun}Service` with exactly ONE public method, `run(params)`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has three: `SummarizeLedgerService` (cash, holdings, average price), `DecideOrderService` (`FILLED`, `NEW` or `REJECTED`), `BuildPortfolioService` (positions and returns). File names follow the class: `summarize-ledger.service.ts`.
 
 ```typescript
-// src/orders/domain/services/ledger.service.ts
-export class LedgerService {
-  summarize(entries: LedgerEntry[]): LedgerSummary {
+// src/orders/domain/services/summarize-ledger.service.ts
+export class SummarizeLedgerService {
+  public run(entries: LedgerEntry[]): LedgerSummary {
     const state = this.emptyState();
     for (const entry of this.replayOrder(entries)) this.apply(state, entry); // oldest first
     return this.toSummary(state);
@@ -53,15 +53,15 @@ export class LedgerService {
 }
 ```
 
-A domain service never injects a port and never does I/O: the use case loads the data and passes it in. Helpers are `private` methods. Data shapes the service takes or returns (`LedgerEntry`, `LedgerSummary`) are exported interfaces in the same file. Nest registers it as a plain provider (`providers: [LedgerService]`); it needs no `@Injectable()` because its constructor is empty.
+A domain service never injects a port and never does I/O: the use case loads the data and passes it in. Helpers are `private` methods; `run` is the only public one. Data shapes the service takes or returns (`LedgerEntry`, `LedgerSummary`) are exported interfaces in the same file. Nest registers it as a plain provider (`providers: [SummarizeLedgerService]`); it needs no `@Injectable()` because its constructor is empty.
 
 ## Rule 2: Entities own their state changes
 
-A rule about one order is a method on the `Order` entity.
+A rule about one order is a method on the `Order` entity. Entities are exempt from the one-public-method rule: they may have several.
 
 ```typescript
 // src/orders/domain/entities/order.entity.ts
-cancel(now: Date): void {
+public cancel(now: Date): void {
   if (this.props.status === 'CANCELLED') return; // already cancelled: a retry changes nothing
   if (this.props.status !== 'NEW') throw new OrderNotCancellableException(this.props.id);
   this.props.status = 'CANCELLED';
@@ -71,7 +71,7 @@ cancel(now: Date): void {
 
 ## Rule 3: A rejection is a value, an error is an exception
 
-`REJECTED` is a stored order and a `201`: `OrderDecisionService.decide` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain` with a stable `code`; the global exception filter renders the error body. Never extend Nest's `HttpException` in `domain/`.
+`REJECTED` is a stored order and a `201`: `DecideOrderService.run` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain` with a stable `code`; the global exception filter renders the error body. Never extend Nest's `HttpException` in `domain/`.
 
 ```typescript
 // src/orders/domain/exceptions/order-not-found.exception.ts
@@ -88,8 +88,13 @@ export class OrderNotFoundException extends DomainException {
 // src/orders/domain/ports/order.repository.ts
 export const ORDER_REPOSITORY = Symbol('OrderRepository');
 
+export interface FindByUserParams {
+  userId: number;
+  statuses: OrderStatus[];
+}
+
 export interface OrderRepository {
-  findByUser(params: { userId: number; statuses: OrderStatus[] }): Promise<LedgerEntry[]>;
+  findByUser(params: FindByUserParams): Promise<LedgerEntry[]>;
   findById(id: number): Promise<Order | null>;
   save(order: Order): Promise<Order>;
 }
@@ -120,34 +125,56 @@ export class SendOrderUseCase {
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(MARKET_DATA_REPOSITORY) private readonly marketData: MarketDataRepository,
-    private readonly ledger: LedgerService,
-    private readonly decision: OrderDecisionService,
+    private readonly summarizeLedger: SummarizeLedgerService,
+    private readonly decideOrder: DecideOrderService,
   ) {}
 
-  run(input: SendOrderInput): Promise<Order> {
+  public run(input: SendOrderInput): Promise<Order> {
     return this.uow.run(input.userId, async () => { // per-user lock
       const entries = await this.orders.findByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
       const price = await this.marketData.findLatestClose(input.instrumentId);
-      const summary = this.ledger.summarize(entries);
-      return this.orders.save(this.decision.decide({ input, summary, price, now: new Date() }));
+      const summary = this.summarizeLedger.run(entries);
+      const now = new Date();
+      return this.orders.save(this.decideOrder.run({ input, summary, price, now }));
     });
   }
 }
 ```
 
-Wiring: `providers: [SendOrderUseCase, LedgerService, OrderDecisionService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, LedgerService]` so `portfolio` can read the ledger.
+Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, DecideOrderService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, SummarizeLedgerService]` so `portfolio` can read the ledger.
 
 ## Naming
 
 | Kind | File | Class |
 |---|---|---|
 | Entity | `order.entity.ts` | `Order` |
-| Domain service | `ledger.service.ts` | `LedgerService` |
+| Domain service | `summarize-ledger.service.ts` | `SummarizeLedgerService`, method `run` |
 | Port | `order.repository.ts` | `OrderRepository` + `ORDER_REPOSITORY` |
 | Exception | `order-not-found.exception.ts` | `OrderNotFoundException` |
 | Use case | `send-order.use-case.ts` | `SendOrderUseCase`, method `run` |
 | Repository | `prisma-order.repository.ts` | `PrismaOrderRepository` |
 | Controller, DTO | `orders.controller.ts`, `send-order.dto.ts` | `OrdersController`, `SendOrderDto` |
+
+## Rule 7: Members and parameters
+
+- Every class member states `public`, `private` or `protected`. Nest DI constructor parameter properties are `private readonly`.
+- A domain service or use case has exactly ONE public method, `run`. Entities may have several.
+- A method or function with more than one parameter takes one `params` object typed by a named interface (no inline object types). Destructure it on the FIRST line of the body, never in the signature. The id travels inside the object, never next to it. Exempt: NestJS DI constructors and inline arrow callbacks (`.map(({ x }) => ...)`).
+- Name a value before passing it: no inline `new Date()` or unexplained literals at the call site.
+
+```typescript
+// Bad: destructured in the signature, inline object type, positional id next to the object
+public run({ input, summary }: { input: SendOrderInput; summary: LedgerSummary }, price: Decimal): Order { ... }
+
+// Good: named interface, destructured on the first line
+public run(params: DecideOrderParams): Order {
+  const { input, summary, price, now } = params;
+
+  return this.applyRules({ input, summary, price, now });
+}
+```
+
+ESLint enforces `public`/`private` on every member, one public method in services and use cases, and a single parameter on their methods. It cannot check "destructure on the first line": the review checks it.
 
 Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e-testing skill (HTTP and database).
 
@@ -156,7 +183,9 @@ Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e
 ```
 - [ ] The file sits in the layout above; no empty folders
 - [ ] No decorators, Nest or Prisma imports in domain/
-- [ ] Business rules are methods of a domain service or an entity
+- [ ] Business rules are a domain service (`{Verb}{Noun}Service.run`) or an entity method
+- [ ] Every member has `public`/`private`; services and use cases have one public method, `run`
+- [ ] More than one parameter: one `params` interface, destructured on the first line of the body
 - [ ] Domain services inject no port and do no I/O
 - [ ] Ports are an interface + Symbol, injected with @Inject(TOKEN)
 - [ ] Repositories only map and query
