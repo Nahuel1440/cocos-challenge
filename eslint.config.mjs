@@ -8,10 +8,11 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettier,
   {
+    files: ['src/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [{ group: ['../*'], message: 'Use @/... (maps to src/...)' }] },
+        { patterns: [{ group: ['..', '../*'], message: 'Use @/... (maps to src/...)' }] },
       ],
     },
   },
