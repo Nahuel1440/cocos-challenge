@@ -43,6 +43,7 @@ Rules:
 - Parameters and return types are domain types, never Prisma types.
 - A method with more than one parameter takes one params interface (see [Parameter Objects](#parameter-objects)).
 - Add a query method only when a use case needs it. No `count`, `sum*` or other aggregates the use case can compute with a domain service.
+- `searchByUser` returns `LedgerEntry` rows, not `Order` aggregates: a read model that the ledger service replays (a documented exception to "a repository returns aggregates"; `LedgerEntry` is declared in the service file).
 - A query is named for what it asks (`searchByUser`), not for the rule behind it. `searchAvailableCash` is a defect: a business rule disguised as a query (see [Dumb Repositories](#dumb-repositories)).
 
 ## Repository Method Naming: search vs find
@@ -86,6 +87,7 @@ Rules:
 - Every write path that changes a user's orders takes it (send and cancel), including jobs. Read-only paths (the portfolio) skip the lock and read one snapshot inside `uow.run` without `userId`.
 - Load the aggregate **after** the lock is taken: an order read before the lock can be stale when the lock is granted.
 - The lock lives in the unit of work, not in a repository method and not in a second port.
+- A forgotten lock fails silently (unlike a missing row lock), so every write path has an e2e concurrency spec: parallel requests, exactly one outcome wins.
 
 ## DI Token: Symbol, not String
 
@@ -189,12 +191,12 @@ In every layer, a method or function with MORE THAN 1 parameter takes a single `
 
 ```typescript
 // Bad: two numbers swappable; inline Date
-order.cancel(userId, new Date());
+order.fill(price, new Date());
 this.decideOrder.run(input, summary, price, new Date());
 
 // Good: params interface; value named first
 const now = new Date();
-order.cancel({ userId, now });
+order.fill({ price, now });
 this.decideOrder.run({ input, summary, price, now });
 ```
 
@@ -226,32 +228,28 @@ Each invariant is its own named private method, or a named boolean, that states 
 
 ```typescript
 // Bad: the reader has to decode the rule
-if (!((side === 'BUY' && cost.lte(cash)) || (side === 'SELL' && size <= held))) {
+if (!(Number.isInteger(size) && size > 0) && !(amount !== undefined && amount.gt(0))) {
   throw new InvalidArgumentError('size', size);
 }
 
 // Good: the rule has a name
-private ensureCanAfford(params: AffordParams): void {
-  const { cost, cash } = params;
-  const costFitsCash = cost.lte(cash);
+private static ensureSizeIsPositiveInteger(size: number): void {
+  const sizeIsPositiveInteger = Number.isInteger(size) && size > 0;
 
-  if (!costFitsCash) {
-    throw new InvalidArgumentError('cost', cost);
+  if (!sizeIsPositiveInteger) {
+    throw new InvalidArgumentError('size', size);
   }
 }
 ```
 
-A braceless early return on empty input (`if (ids.length === 0) return []`) is not an invariant. It needs no name and no braces; do not extract it. `create()` then reads as a list of rules (`ensureCanAfford`, `ensureSizeIsPositive`, ...). **Why:** intention-revealing names (Clean Code ch. 2) and one reason to change per function (ch. 3).
+A braceless early return on empty input (`if (ids.length === 0) return []`) is not an invariant. It needs no name and no braces; do not extract it. `create()` then reads as a list of rules (`ensureSizeIsPositiveInteger`, ...). Not enough money is not a guard: it is a `REJECTED` value (see SKILL.md, Rule 3). **Why:** intention-revealing names (Clean Code ch. 2) and one reason to change per function (ch. 3).
 
 ## Blank Lines by Meaning
 
 Group lines like paragraphs. A step is one piece of intent: a lookup together with the check on its result, a mutation together with its save, converting a row, running a query. A blank line separates steps; it never splits a step. Decide by meaning, not by statement type (Clean Code ch. 5). When the body has more than one step, the final `return` is its own step and gets a blank line before it.
 
 ```typescript
-const order = await this.orders.searchById(input.orderId);
-if (!order) {
-  throw new OrderNotFoundException(input.orderId);
-}
+const order = await this.orders.findById(input.orderId);
 
 order.cancel(now);
 await this.orders.save(order);
@@ -263,7 +261,7 @@ A repository `search` method is three steps (build the query, run it, map the ro
 // Bad: three steps packed together
 public async searchByUser(params: SearchOrdersByUserParams): Promise<LedgerEntry[]> {
   const { userId, statuses } = params;
-  const rows = await this.tx.order.findMany({ where: { userId, status: { in: statuses } } });
+  const rows = await this.txHost.tx.order.findMany({ where: { userId, status: { in: statuses } } });
   return rows.map((row) => OrderPersistenceMapper.toLedgerEntry(row));
 }
 
@@ -271,7 +269,7 @@ public async searchByUser(params: SearchOrdersByUserParams): Promise<LedgerEntry
 public async searchByUser(params: SearchOrdersByUserParams): Promise<LedgerEntry[]> {
   const { userId, statuses } = params;
 
-  const rows = await this.tx.order.findMany({ where: { userId, status: { in: statuses } } });
+  const rows = await this.txHost.tx.order.findMany({ where: { userId, status: { in: statuses } } });
 
   return rows.map((row) => OrderPersistenceMapper.toLedgerEntry(row));
 }

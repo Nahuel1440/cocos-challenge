@@ -115,6 +115,10 @@ export class Order {
     return this.id;
   }
 
+  public getUserId(): number {
+    return this.userId;
+  }
+
   public getStatus(): OrderStatus {
     return this.status;
   }
@@ -235,5 +239,7 @@ export class OrderNotFoundException extends DomainException {
   }
 }
 ```
+
+`InvalidArgumentError` (shared, `extends DomainException`, code `INVALID_ARGUMENT`, status 400) is what guards and value objects throw for a malformed argument.
 
 **Naming:** `{Entity}{Reason}Exception`: `OrderNotFoundException`, `OrderNotCancellableException`. Every code is unique. Never extend Nest's `HttpException` in `domain/`. A `REJECTED` order is a value the domain returns, not an exception.

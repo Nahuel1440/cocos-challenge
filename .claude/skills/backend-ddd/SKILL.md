@@ -11,7 +11,7 @@ Each module has three layers: `domain` (rules), `application` (use cases), `infr
 - Moving or renaming a file under `src/`
 - Reviewing where a rule belongs
 
-Do NOT use for tests (unit-testing, e2e-testing skills).
+Do NOT use for tests (unit-testing, e2e-testing skills), for shared infrastructure wiring (`main.ts`, database client setup) or for config files (eslint, tsconfig).
 
 ## Decision Tree
 
@@ -67,7 +67,7 @@ A rule over several orders or several inputs is a domain service: a class in `do
 export class SummarizeLedgerService {
   public run(entries: LedgerEntry[]): LedgerSummary {
     const state = this.emptyState();
-    for (const entry of this.replayOrder(entries)) this.apply(state, entry); // oldest first
+    for (const entry of this.replayOrder(entries)) this.apply({ state, entry }); // oldest first
     return this.toSummary(state);
   }
 
@@ -124,7 +124,7 @@ export interface OrderRepository {
 }
 ```
 
-Inject with `@Inject(ORDER_REPOSITORY)`. An interface is erased at runtime, so injecting by its type alone fails; never use a string token. The module exports the symbol when another module needs the port. Every method starts with `save`, `search` or `find`: `search*` may return `null` or an empty list, `find*` returns a result or throws a `*NotFoundException`. No `delete`. See [conventions.md](references/conventions.md#repository-port-shape).
+Inject with `@Inject(ORDER_REPOSITORY)`. An interface is erased at runtime, so injecting by its type alone fails; never use a string token. The module exports the symbol when another module needs the port. Every repository method starts with `save`, `search` or `find` (`UnitOfWork` is not a repository): `search*` may return `null` or an empty list, `find*` returns a result or throws a `*NotFoundException`. No `delete`. See [conventions.md](references/conventions.md#repository-port-shape).
 
 ## Rule 5: Repositories are dumb
 
@@ -154,13 +154,21 @@ export class SendOrderUseCase {
   ) {}
 
   public run(input: SendOrderInput): Promise<Order> {
-    return this.uow.run({ userId: input.userId, work: async () => { // per-user lock
-      const entries = await this.orders.searchByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
-      const price = await this.marketData.searchLatestClose(input.instrumentId);
-      const summary = this.summarizeLedger.run(entries);
-      const now = new Date();
-      return this.orders.save(this.decideOrder.run({ input, summary, price, now }));
-    } });
+    const { userId, instrumentId } = input;
+
+    return this.uow.run({
+      userId, // per-user lock
+      work: async () => {
+        const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
+        const price = await this.marketData.searchLatestClose(instrumentId);
+        const summary = this.summarizeLedger.run(entries);
+        const now = new Date();
+
+        const order = this.decideOrder.run({ input, summary, price, now });
+
+        return this.orders.save(order);
+      },
+    });
   }
 }
 ```
@@ -187,7 +195,7 @@ public run(params: DecideOrderParams): Order {
 }
 ```
 
-ESLint enforces `public`/`private` on every member, `run` as the only non-private method in services and use cases, a single parameter on their methods (spec files excluded), the port method prefixes, no string `@Inject` tokens, no `$transaction` in repositories, and the layer import boundaries. It cannot check "destructure on the first line", destructuring in the signature or inline object types: the review checks them.
+ESLint enforces `public`/`private` on every member, `run` as the only non-private method in services and use cases, a single parameter on their methods (spec files excluded), no destructuring in a signature and no inline object types, the repository-port method prefixes and `find*` never returning `null`, no string `@Inject` tokens, no `$transaction` in repositories, no exported free functions in `domain/`, and the layer import boundaries. It cannot check "destructure on the first line", business questions hidden in a query name (`findAvailableCash`), or imports between modules: the review checks them.
 
 ## Module Placement and Concurrency
 

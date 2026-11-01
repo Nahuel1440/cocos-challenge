@@ -203,10 +203,10 @@ See [use-cases.md](use-cases.md#structure). One public `run(input)`, injected po
 // src/{module}/infrastructure/http/{verb}-{entity}.dto.ts
 export class {Verb}{Entity}Dto {
   @IsInt()
-  instrumentId: number;
+  public instrumentId!: number;
 
   @IsIn(['BUY', 'SELL'])
-  side: 'BUY' | 'SELL';
+  public side!: 'BUY' | 'SELL';
 }
 ```
 

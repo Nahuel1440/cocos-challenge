@@ -104,6 +104,8 @@ const useCase = new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new Su
 
 beforeEach(() => {
   vi.resetAllMocks()
+  mockUow.run.mockImplementation(({ work }) => work())
+  mockOrders.save.mockImplementation(async (order) => order)
 })
 
 describe('run', () => {
@@ -111,14 +113,14 @@ describe('run', () => {
     // Arrange
     const AVAILABLE_CASH = new Decimal('500.00')
     const input = OrderInputMother.marketBuyCosting('800.00')
-    mockOrders.searchByUser.mockResolvedValue(LedgerMother.withCash(AVAILABLE_CASH))
+    mockOrders.searchByUser.mockResolvedValue(LedgerEntryMother.withCash(AVAILABLE_CASH))
 
     // Act
     const result = await useCase.run(input)
 
     // Assert
-    expect(result.status).toBe('REJECTED')
-    expect(result.rejectionReason).toBe('INSUFFICIENT_FUNDS')
+    expect(result.getStatus()).toBe('REJECTED')
+    expect(result.toPrimitives().rejectionReason).toBe('INSUFFICIENT_FUNDS')
   })
 })
 ```
@@ -145,18 +147,16 @@ Valid-by-default test objects. Callers override only what their test cares about
 
 ```typescript
 // ❌ BAD — relies on knowing Mother defaults
-const ledger = LedgerMother.create()
-expect(ledger.availableCash()).toEqual(new Decimal('1000.00')) // Where does 1000 come from?
+const entries = LedgerEntryMother.create()
+expect(summarizeLedger.run(entries).cash).toEqual(new Decimal('1000.00')) // Where does 1000 come from?
 
 // ⚠️ OK but verbose — explicit overrides, hard to scan
-const ledger = LedgerMother.create({
-  entries: [EntryMother.cashIn({ amount: new Decimal('1000.00') })],
-})
+const entries = [LedgerEntryMother.cashIn({ amount: new Decimal('1000.00') })]
 
 // ✅ GOOD — semantic Mother method, test reads like a sentence
-const LEDGER_WITH_1000_CASH = LedgerMother.withCash(new Decimal('1000.00'))
+const ENTRIES_WITH_1000_CASH = LedgerEntryMother.withCash(new Decimal('1000.00'))
 
-expect(LEDGER_WITH_1000_CASH.availableCash()).toEqual(new Decimal('1000.00'))
+expect(summarizeLedger.run(ENTRIES_WITH_1000_CASH).cash).toEqual(new Decimal('1000.00'))
 ```
 
 When inline overrides are needed, assign them to **named constants** that describe the scenario, so the test reads top-down without mental math.
@@ -170,7 +170,7 @@ interface LimitBuyParams {
 }
 
 export class OrderMother {
-  public static create(overrides?: Partial<OrderProps>): Order { /* valid defaults */ }
+  public static create(overrides?: Partial<OrderPrimitives>): Order { /* valid defaults, built with Order.fromPrimitives */ }
 
   public static limitBuy(params: LimitBuyParams): Order {
     const { price, size } = params;
@@ -223,9 +223,9 @@ Start with `should`, describe the **outcome**, include the **condition**. A fail
 | Anti-Pattern | BAD | GOOD |
 |---|---|---|
 | **Implementation details** | `expect(mock).toHaveBeenCalledBefore(otherMock)` | `expect(result.cash).toEqual(expected)` |
-| **Mock overload** | `{ debit: vi.fn().mockReturnValue(true) }` | `LedgerMother.withCash('1000.00')` |
+| **Mock overload** | `{ debit: vi.fn().mockReturnValue(true) }` | `LedgerEntryMother.withCash('1000.00')` |
 | **Meaningless assertion** | `expect(mockRepo.save).toHaveBeenCalled()` | `expect(mockRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'FILLED' }))` |
-| **Shared mutable state** | Ledger created outside `it()` blocks | Fresh instance per test via Mother |
+| **Shared mutable state** | Entries created outside `it()` blocks | Fresh instance per test via Mother |
 | **Trivial test** | Testing a simple getter returns what was set | Skip — no logic to verify |
 | **Implicit Mother defaults** | `OrderMother.create()` then assert on default values | Use semantic Mother methods or named constants |
 | **Verbose inline overrides** | Complex `Mother.create({ ... })` with many params inline | Create a semantic Mother method and assign to a named constant |

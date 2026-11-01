@@ -32,6 +32,10 @@ export class CancelOrderUseCase {
       userId,
       work: async () => {
         const found = await this.orders.findById(orderId); // after the per-user lock
+        if (found.getUserId() !== userId) {
+          throw new OrderNotFoundException(orderId); // another user's order looks missing
+        }
+
         const now = new Date();
 
         found.cancel(now);
@@ -110,7 +114,7 @@ The controller receives the validated DTO and passes primitives to the use case:
 ```typescript
 // src/orders/infrastructure/http/orders.controller.ts
 @Post()
-public async send(@Headers('x-user-id') userId: number, @Body() dto: SendOrderDto) {
+public async send(@CurrentUserId() userId: number, @Body() dto: SendOrderDto) {
   const order = await this.sendOrder.run({ userId, ...dto });
 
   return order.toPrimitives();
@@ -126,7 +130,8 @@ A use case may read from one module and write to another when the operation has 
 - Inject the other module's port; the use case lives in the module that owns the write (or the read, for a projection).
 - The importing module lists the other in its `imports`, and the other module exports the port Symbol (and the domain service it shares).
 - Import only `@/<other-module>/domain/...`. **Never** import another module's `application/` or `infrastructure/`.
-- Dependencies are one-way: `portfolio` imports from `orders`, never the reverse.
+- Dependencies are one-way: `portfolio` imports from `orders`, never the reverse. The one exception to "domain only" is a `*.module.ts` importing the other module's module class.
+- Lint cannot see module direction: the review checks it.
 
 | Scenario | Pattern |
 |---|---|
