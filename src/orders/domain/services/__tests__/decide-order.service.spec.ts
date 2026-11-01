@@ -339,4 +339,253 @@ describe('run', () => {
     expect(decision.status).toBe('REJECTED');
     expect(decision.rejectionReason).toBe('INSUFFICIENT_SHARES');
   });
+
+  it('should reject with NO_MARKET_PRICE and a null price when a MARKET order has no market price', () => {
+    // Arrange
+    const NO_MARKET_PRICE = null;
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 5,
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(1000)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: NO_MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('NO_MARKET_PRICE');
+    expect(decision.price).toBeNull();
+    expect(decision.size).toBe(5);
+  });
+
+  it('should reject with NO_MARKET_PRICE and a null size when the order came with an amount', () => {
+    // Arrange
+    const NO_MARKET_PRICE = null;
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('500.00'),
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(1000)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: NO_MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('NO_MARKET_PRICE');
+    expect(decision.size).toBeNull();
+  });
+
+  it('should round the size down when the division is not exact (10000.00/930.00 -> 10)', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('930.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('10000.00'),
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledCashIn(100000),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('FILLED');
+    expect(decision.size).toBe(10);
+  });
+
+  it('should give the exact size when the division has no remainder (0.30/0.10 -> 3)', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('0.10');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('0.30'),
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(1000)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.size).toBe(3);
+  });
+
+  it('should reject with AMOUNT_BELOW_ONE_SHARE and size 0 when a MARKET amount buys no share', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('930.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('929.99'),
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledCashIn(100000),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('AMOUNT_BELOW_ONE_SHARE');
+    expect(decision.size).toBe(0);
+    expect(decision.price?.equals(MARKET_PRICE)).toBe(true);
+  });
+
+  it('should check cash against the size computed from the amount', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('930.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('10000.00'),
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(9500)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('FILLED');
+    expect(decision.size).toBe(10);
+  });
+
+  it('should compute the size from the amount on a SELL too', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('930.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('10000.00'),
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_ID,
+        size: 10,
+        price: '50.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('FILLED');
+    expect(decision.size).toBe(10);
+  });
+
+  it('should compare the exact cost against cash without float error', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('0.10');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 3,
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(0.3)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('FILLED');
+    expect(decision.rejectionReason).toBeNull();
+  });
+
+  it('should report NO_MARKET_PRICE before checking funds when both fail', () => {
+    // Arrange
+    const NO_MARKET_PRICE = null;
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 5,
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(10)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: NO_MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.rejectionReason).toBe('NO_MARKET_PRICE');
+  });
+
+  it('should not use a NEW CASH_IN as available cash', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 5,
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.newCashIn(1000)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('INSUFFICIENT_FUNDS');
+  });
 });

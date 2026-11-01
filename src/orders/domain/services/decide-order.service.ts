@@ -32,22 +32,42 @@ export interface DecideOrderParams {
   marketPrice: Decimal | null;
 }
 
-interface PricedOrderParams {
+interface RejectParams {
+  reason: RejectionReason;
+  price: Decimal | null;
+  size: number | null;
+}
+
+interface ResolveSizeParams {
+  input: OrderInput;
+  price: Decimal;
+}
+
+interface SizedOrderParams {
   input: OrderInput;
   summary: LedgerSummary;
-  price: Decimal | null;
+  price: Decimal;
+  size: number;
 }
 
 export class DecideOrderService {
   public run(params: DecideOrderParams): OrderDecision {
     const { input, summary, marketPrice } = params;
     const price = input.type === 'LIMIT' ? input.limitPrice : marketPrice;
-    const { size } = input;
-    const rejectionReason = this.findRejection({ input, summary, price });
 
-    if (rejectionReason !== null) {
-      return { status: 'REJECTED', rejectionReason, price, size };
+    if (price === null) {
+      return this.reject({
+        reason: 'NO_MARKET_PRICE',
+        price,
+        size: input.size,
+      });
     }
+
+    const size = this.resolveSize({ input, price });
+    const rejection = this.findRejection({ input, summary, price, size });
+
+    if (rejection !== null)
+      return this.reject({ reason: rejection, price, size });
 
     return {
       status: input.type === 'LIMIT' ? 'NEW' : 'FILLED',
@@ -57,9 +77,26 @@ export class DecideOrderService {
     };
   }
 
-  private findRejection(params: PricedOrderParams): RejectionReason | null {
-    const { input } = params;
+  private reject(params: RejectParams): OrderDecision {
+    const { reason, price, size } = params;
 
+    return { status: 'REJECTED', rejectionReason: reason, price, size };
+  }
+
+  private resolveSize(params: ResolveSizeParams): number {
+    const { input, price } = params;
+
+    if (input.size !== null) return input.size;
+
+    return (input.amount ?? new Decimal(0)).divToInt(price).toNumber();
+  }
+
+  private findRejection(params: SizedOrderParams): RejectionReason | null {
+    const { input, size } = params;
+
+    if (input.type === 'MARKET' && input.amount !== null && size === 0) {
+      return 'AMOUNT_BELOW_ONE_SHARE';
+    }
     if (input.side === 'BUY' && this.exceedsAvailableCash(params)) {
       return 'INSUFFICIENT_FUNDS';
     }
@@ -70,19 +107,17 @@ export class DecideOrderService {
     return null;
   }
 
-  private exceedsAvailableCash(params: PricedOrderParams): boolean {
-    const { input, summary, price } = params;
+  private exceedsAvailableCash(params: SizedOrderParams): boolean {
+    const { summary, price, size } = params;
 
-    if (price === null || input.size === null) return false;
-
-    return price.times(input.size).greaterThan(summary.availableCash);
+    return price.times(size).greaterThan(summary.availableCash);
   }
 
-  private exceedsAvailableShares(params: PricedOrderParams): boolean {
-    const { input, summary } = params;
+  private exceedsAvailableShares(params: SizedOrderParams): boolean {
+    const { input, summary, size } = params;
     const available =
       summary.holdings.get(input.instrumentId)?.availableQuantity ?? 0;
 
-    return (input.size ?? 0) > available;
+    return size > available;
   }
 }
