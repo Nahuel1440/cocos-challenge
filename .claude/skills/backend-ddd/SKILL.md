@@ -3,7 +3,7 @@ name: backend-ddd
 description: "Fixes where code goes in the Cocos hexagonal NestJS API: module layout, domain services as classes, entities, ports with Symbol tokens, dumb Prisma repositories, use cases and controllers. MUST be used before creating or moving a file under `src/`, or when adding a module, entity, domain service, port, repository, use case, controller or DTO, or when the user says 'new module', 'add use case', 'where does this go'. Do NOT use for writing tests (unit-testing, e2e-testing skills)."
 ---
 
-Each module has three layers: `domain` (rules), `application` (use cases), `infrastructure` (Prisma and HTTP). If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user. Cocos has no soft delete, no criteria builder (D-10) and no domain events: do not add them.
+Each module has three layers: `domain` (rules), `application` (use cases), `infrastructure` (Prisma and HTTP). If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user. Cocos has no soft delete, no criteria builder and no domain events: do not add them.
 
 ## Layout
 
@@ -25,7 +25,7 @@ src/<module>/
 
 Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` with the same layout. Create only the folders a module uses: `instruments` needs `ports/`, `use-cases/`, `persistence/` and `http/`, nothing else.
 
-- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`, `UnitOfWork` + `UNIT_OF_WORK` (T14).
+- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`, `UnitOfWork` + `UNIT_OF_WORK` (transaction and per-user lock).
 - `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id.
 
 | Layer | May import | Never imports |
@@ -34,18 +34,18 @@ Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` with the same l
 | `application/` | domain (ports included, e.g. `UnitOfWork`), `@nestjs/common` (`Injectable`, `Inject`, `Logger`) | infrastructure, Prisma, DTOs |
 | `infrastructure/` | anything | — |
 
-Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/domain/...`; `portfolio` imports from `orders`, never the reverse (D-32).
+Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/domain/...`; `portfolio` imports from `orders`, never the reverse: `orders` owns the ledger.
 
 ## Rule 1: Business rules live in domain services
 
-A rule over several orders or several inputs is a method of a class in `domain/services/`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has three: `LedgerService.summarize` (T13), `OrderDecisionService.decide` (T5), `PortfolioService.build` (T7).
+A rule over several orders or several inputs is a method of a class in `domain/services/`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has three: `LedgerService.summarize` (cash, holdings, average price), `OrderDecisionService.decide` (`FILLED`, `NEW` or `REJECTED`), `PortfolioService.build` (positions and returns).
 
 ```typescript
 // src/orders/domain/services/ledger.service.ts
 export class LedgerService {
   summarize(entries: LedgerEntry[]): LedgerSummary {
     const state = this.emptyState();
-    for (const entry of this.replayOrder(entries)) this.apply(state, entry); // D-33
+    for (const entry of this.replayOrder(entries)) this.apply(state, entry); // oldest first
     return this.toSummary(state);
   }
 
@@ -62,16 +62,16 @@ A rule about one order is a method on the `Order` entity.
 ```typescript
 // src/orders/domain/entities/order.entity.ts
 cancel(now: Date): void {
-  if (this.props.status === 'CANCELLED') return; // D-18: a retry changes nothing
+  if (this.props.status === 'CANCELLED') return; // already cancelled: a retry changes nothing
   if (this.props.status !== 'NEW') throw new OrderNotCancellableException(this.props.id);
   this.props.status = 'CANCELLED';
-  this.props.cancelledAt = now; // D-39
+  this.props.cancelledAt = now; // app clock, after the lock
 }
 ```
 
 ## Rule 3: A rejection is a value, an error is an exception
 
-`REJECTED` is a stored order and a `201` (D-17): `OrderDecisionService.decide` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain` with a stable `code` (D-29); the T4 filter renders the body. Never extend Nest's `HttpException` in `domain/`.
+`REJECTED` is a stored order and a `201`: `OrderDecisionService.decide` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain` with a stable `code`; the global exception filter renders the error body. Never extend Nest's `HttpException` in `domain/`.
 
 ```typescript
 // src/orders/domain/exceptions/order-not-found.exception.ts
@@ -102,15 +102,15 @@ Inject with `@Inject(ORDER_REPOSITORY)`. An interface is erased at runtime, so i
 A repository maps rows to domain objects and back, and runs the query it is given. It never decides a status, a balance, a rejection or which orders count.
 
 ```typescript
-await this.orders.findByUser({ userId, statuses: ['FILLED', 'NEW'] }); // ✅ the caller picks (D-32)
+await this.orders.findByUser({ userId, statuses: ['FILLED', 'NEW'] }); // ✅ the caller picks
 await this.orders.findAvailableCash(userId); // ❌ SUM(size * price) in SQL: a rule in the repository
 ```
 
-Map in `private toDomain()` / `toRow()` methods; no mapper class. The domain never sees Prisma types: build `new Decimal(row.price.toString())` here (D-1). Repositories join the T14 transaction (`@nestjs-cls/transactional`); they never open one.
+Map in `private toDomain()` / `toRow()` methods; no mapper class. The domain never sees Prisma types: build `new Decimal(row.price.toString())` here; money is decimal.js, never `number`. Repositories join the current transaction (`@nestjs-cls/transactional`); they never open one.
 
 ## Rule 6: Use cases orchestrate, controllers call use cases
 
-A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run` when SPEC asks (D-9, D-35) and logs the outcome line (D-40). A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Money leaves as a string rounded once there, `ROUND_HALF_UP` to 2 decimals (D-23, D-30).
+A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot) and logs one outcome line per order. A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Money leaves as a string rounded once there, `ROUND_HALF_UP` to 2 decimals.
 
 ```typescript
 // src/orders/application/use-cases/send-order.use-case.ts
@@ -125,7 +125,7 @@ export class SendOrderUseCase {
   ) {}
 
   run(input: SendOrderInput): Promise<Order> {
-    return this.uow.run(input.userId, async () => { // T14 API
+    return this.uow.run(input.userId, async () => { // per-user lock
       const entries = await this.orders.findByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
       const price = await this.marketData.findLatestClose(input.instrumentId);
       const summary = this.ledger.summarize(entries);
