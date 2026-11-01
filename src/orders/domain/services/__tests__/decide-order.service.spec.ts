@@ -162,4 +162,181 @@ describe('run', () => {
     expect(decision.status).toBe('REJECTED');
     expect(decision.rejectionReason).toBe('INSUFFICIENT_FUNDS');
   });
+
+  it('should fill a MARKET SELL when available shares cover the size', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 4,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_ID,
+        size: 10,
+        price: '50.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('FILLED');
+    expect(decision.rejectionReason).toBeNull();
+    expect(decision.price?.equals(MARKET_PRICE)).toBe(true);
+    expect(decision.size).toBe(4);
+  });
+
+  it('should accept a SELL when its size equals the available shares', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 10,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_ID,
+        size: 10,
+        price: '50.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('FILLED');
+    expect(decision.rejectionReason).toBeNull();
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when size exceeds the available shares', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 11,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_ID,
+        size: 10,
+        price: '50.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('INSUFFICIENT_SHARES');
+    expect(decision.price?.equals(MARKET_PRICE)).toBe(true);
+    expect(decision.size).toBe(11);
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when a NEW LIMIT SELL already reserves the shares', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 4,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledBuy({
+        instrumentId: INSTRUMENT_ID,
+        size: 10,
+        price: '50.00',
+      }),
+      LedgerEntryMother.newSell({
+        instrumentId: INSTRUMENT_ID,
+        size: 8,
+        price: '120.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('INSUFFICIENT_SHARES');
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when the user holds none of the instrument', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 1,
+    });
+    const summary = summarizeLedger.run([LedgerEntryMother.filledCashIn(1000)]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('INSUFFICIENT_SHARES');
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when the holding is negative', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 1,
+    });
+    const summary = summarizeLedger.run([
+      LedgerEntryMother.filledSell({
+        instrumentId: INSTRUMENT_ID,
+        size: 3,
+        price: '50.00',
+      }),
+    ]);
+
+    // Act
+    const decision = decideOrder.run({
+      input,
+      summary,
+      marketPrice: MARKET_PRICE,
+    });
+
+    // Assert
+    expect(decision.status).toBe('REJECTED');
+    expect(decision.rejectionReason).toBe('INSUFFICIENT_SHARES');
+  });
 });
