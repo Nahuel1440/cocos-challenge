@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderSide {
+  BUY
+  SELL
+  CASH_IN
+  CASH_OUT
+}
+
+enum OrderStatus {
+  NEW
+  FILLED
+  REJECTED
+  CANCELLED
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+}
+
+enum InstrumentType {
+  ACCIONES
+  MONEDA
+}
+
+enum RejectionReason {
+  INSUFFICIENT_FUNDS
+  INSUFFICIENT_SHARES
+  AMOUNT_BELOW_ONE_SHARE
+  NO_MARKET_PRICE
+}
+
+model Instrument {
+  id         Int            @id @default(autoincrement())
+  ticker     String         @db.VarChar(10)
+  name       String         @db.VarChar(255)
+  type       InstrumentType
+  marketData MarketData[]
+  orders     Order[]
+
+  @@map("instruments")
+}
+
+model MarketData {
+  id            Int        @id @default(autoincrement())
+  instrumentId  Int        @map("instrumentid")
+  high          Decimal?   @db.Decimal(10, 2)
+  low           Decimal?   @db.Decimal(10, 2)
+  open          Decimal?   @db.Decimal(10, 2)
+  close         Decimal    @db.Decimal(10, 2)
+  previousClose Decimal    @map("previousclose") @db.Decimal(10, 2)
+  date          DateTime   @db.Date
+  instrument    Instrument @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([instrumentId, date])
+  @@map("marketdata")
+}
+
+// Prisma has no CHECK: they live only in the cocos_schema migration.
+model Order {
+  id              Int              @id @default(autoincrement())
+  instrumentId    Int              @map("instrumentid")
+  userId          Int              @map("userid")
+  size            Int?
+  price           Decimal?         @db.Decimal(10, 2)
+  type            OrderType
+  side            OrderSide
+  status          OrderStatus
+  datetime        DateTime         @db.Timestamp(6)
+  rejectionReason RejectionReason? @map("rejection_reason")
+  cancelledAt     DateTime?        @map("cancelled_at") @db.Timestamp(6)
+  instrument      Instrument       @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user            User             @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@map("orders")
+}
+
+model User {
+  id            Int     @id @default(autoincrement())
+  email         String  @db.VarChar(255)
+  accountNumber String  @map("accountnumber") @db.VarChar(20)
+  orders        Order[]
+
+  @@map("users")
+}

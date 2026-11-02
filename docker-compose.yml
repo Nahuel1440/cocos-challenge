@@ -1,0 +1,22 @@
+name: cocos-challenge
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: cocos
+      POSTGRES_PASSWORD: cocos
+      POSTGRES_DB: cocos
+    ports:
+      - '127.0.0.1:5434:5432'
+    volumes:
+      - ./database.sql:/docker-entrypoint-initdb.d/database.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U cocos -d cocos']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

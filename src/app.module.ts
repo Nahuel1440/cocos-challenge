@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { PrismaModule } from '@/shared/infrastructure/prisma/prisma.module';
 import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
 
 const env = process.env.NODE_ENV;
 
 @Module({
   imports: [
+    PrismaModule,
     LoggerModule.forRoot({
       pinoHttp: {
         // D-40: our own id per request; an incoming X-Request-Id is ignored.
