@@ -19,11 +19,8 @@ const env = process.env.NODE_ENV;
     TransactionsModule,
     UsersModule,
     OrdersModule,
-<<<<<<< HEAD
     InstrumentsModule,
-=======
     PortfolioModule,
->>>>>>> origin/feat/t8-portfolio
     LoggerModule.forRoot({
       pinoHttp: {
         // D-40: our own id per request; an incoming X-Request-Id is ignored.
