@@ -104,7 +104,7 @@ const useCase = new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new Su
 
 beforeEach(() => {
   vi.resetAllMocks()
-  mockUow.run.mockImplementation(({ work }) => work())
+  mockUow.run.mockImplementation((work) => work())
   mockOrders.save.mockImplementation(async (order) => order)
 })
 

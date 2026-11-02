@@ -47,13 +47,14 @@ src/<module>/
 
 Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` with the same layout. Create only the folders a module uses: `instruments` needs `ports/`, `use-cases/`, `persistence/` and `http/`, nothing else.
 
-- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`, `UnitOfWork` + `UNIT_OF_WORK` (transaction and per-user lock).
+- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`.
+- `src/shared/application/unit-of-work.port.ts`: `UnitOfWork` + `UNIT_OF_WORK`, `run(work, options?)` (transaction and isolation only; no user, no lock). Adapter: `src/shared/infrastructure/transactions/cls-unit-of-work.ts`.
 - `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id, `to-decimal-string.ts`.
 
 | Layer | May import | Never imports |
 |---|---|---|
 | `domain/` | `decimal.js`, domain code (its own, `@/shared/domain`, other modules' `domain/`) | `@nestjs/*`, `@prisma/client`, application, infrastructure |
-| `application/` | domain (ports included, e.g. `UnitOfWork`), `@nestjs/common` (`Injectable`, `Inject`, `Logger`) | infrastructure, Prisma, DTOs |
+| `application/` | domain, application ports (e.g. `UnitOfWork`), `@nestjs/common` (`Injectable`, `Inject`, `Logger`) | infrastructure, Prisma, DTOs |
 | `infrastructure/` | anything | — |
 
 Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/domain/...`; `portfolio` imports from `orders`, never the reverse: `orders` owns the ledger.
@@ -144,7 +145,7 @@ Mapping lives in `{Entity}PersistenceMapper` (`infrastructure/persistence/`), ev
 
 ## Rule 6: Use cases orchestrate, controllers call use cases
 
-A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case, then a presenter when the wire shape differs from `toPrimitives()`: no repository, no domain service, no math, no `try/catch`. Domain services keep full precision and return `Decimal`; they never round or build strings. The currency scale is a domain fact: `MONEY_SCALE = 2` (ARS minor unit) lives in `@/shared/domain`. The presenter in `<module>/infrastructure/http/` shapes the JSON and turns each `Decimal` into a string with the shared `toDecimalString` helper (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer rounds.
+A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `uow.run(work, options?)` when it needs one transaction (send and cancel start the work with `await this.orders.lockLedger(userId)`; the portfolio reads one snapshot with `{ isolation: 'RepeatableRead', readOnly: true }` and no lock) and logs one outcome line per order. A controller validates the DTO, calls one use case, then a presenter when the wire shape differs from `toPrimitives()`: no repository, no domain service, no math, no `try/catch`. Domain services keep full precision and return `Decimal`; they never round or build strings. The currency scale is a domain fact: `MONEY_SCALE = 2` (ARS minor unit) lives in `@/shared/domain`. The presenter in `<module>/infrastructure/http/` shapes the JSON and turns each `Decimal` into a string with the shared `toDecimalString` helper (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer rounds.
 
 ```typescript
 // src/orders/application/use-cases/send-order.use-case.ts
@@ -160,21 +161,22 @@ export class SendOrderUseCase {
   public run(input: SendOrderInput): Promise<Order> {
     const { userId, instrumentId } = input;
 
-    return this.uow.run({
-      userId, // per-user lock
-      work: async () => {
-        const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
-        const price = await this.marketData.searchLatestClose(instrumentId);
-        const summary = this.summarizeLedger.run(entries);
-        const order = Order.place({
-          input,
-          marketPrice: price,
-          availableCash: summary.availableCash,
-          availableShares: summary.holdings.get(instrumentId)?.availableQuantity ?? 0,
-        });
+    return this.uow.run(async () => {
+      await this.orders.lockLedger(userId); // first line: per-user lock, before any read
 
-        return this.orders.save(order);
-      },
+      const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
+      const price = await this.marketData.searchLatestClose(instrumentId);
+      const summary = this.summarizeLedger.run(entries);
+      const order = Order.place({
+        userId,
+        input,
+        marketPrice: price,
+        availableCash: summary.availableCash,
+        availableShares: summary.holdings.get(instrumentId)?.availableQuantity ?? 0,
+        now: new Date(), // app clock, after the lock
+      });
+
+      return this.orders.save(order);
     });
   }
 }
@@ -196,9 +198,9 @@ public static place({ input, marketPrice }: { input: SendOrderInput; marketPrice
 
 // Good: named interface, destructured on the first line
 public static place(params: PlaceOrderParams): Order {
-  const { input, marketPrice, availableCash, availableShares } = params;
+  const { userId, input, marketPrice, availableCash, availableShares, now } = params;
 
-  return Order.decide({ input, marketPrice, availableCash, availableShares });
+  return Order.decide({ userId, input, marketPrice, availableCash, availableShares, now });
 }
 ```
 
@@ -206,7 +208,7 @@ ESLint enforces `public`/`private` on every member, `run` as the only non-privat
 
 ## Module Placement and Concurrency
 
-New infrastructure goes in a module named after its responsibility; a shared concern (transactions, clock) gets its own module. For an invariant, prefer a database constraint (translated into a domain exception in the repository); when it needs read-check-write over a user's orders, take the per-user lock through `UnitOfWork.run({ userId, work })`. See [conventions.md](references/conventions.md#concurrency-constraint-first-per-user-lock-second) and [conventions.md](references/conventions.md#module-placement).
+New infrastructure goes in a module named after its responsibility; a shared concern (transactions, clock) gets its own module. For an invariant, prefer a database constraint (translated into a domain exception in the repository); when it needs read-check-write over a user's orders, take the per-user lock with `lockLedger(userId)` as the first line of the work inside `uow.run`. See [conventions.md](references/conventions.md#concurrency-constraint-first-per-user-lock-second) and [conventions.md](references/conventions.md#module-placement).
 
 ## Naming
 
@@ -241,5 +243,5 @@ Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e
 - [ ] Port methods start with `save`/`search`/`find`; `find*` never returns `null`
 - [ ] Entities mutate through `void` commands, expose `getX()`, keep money as `Decimal` inside and strings in `Primitives`
 - [ ] Invariants are named guards; blank lines separate steps
-- [ ] Per-user lock taken by every write path of a user's orders
+- [ ] `lockLedger(userId)` is the first line of the work in every write path of a user's orders
 ```
