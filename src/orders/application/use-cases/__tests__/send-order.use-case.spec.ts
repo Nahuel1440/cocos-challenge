@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, type Mocked, vi } from 'vitest';
 import { SendOrderInputMother } from '@/orders/application/use-cases/__tests__/send-order-input.mother';
 import { SendOrderUseCase } from '@/orders/application/use-cases/send-order.use-case';
 import { OrderSizeTooLargeException } from '@/orders/domain/exceptions/order-size-too-large.exception';
+import type { IdempotencyRepository } from '@/orders/domain/ports/idempotency.repository';
 import type { InstrumentTypeRepository } from '@/orders/domain/ports/instrument-type.repository';
 import type { MarketDataRepository } from '@/orders/domain/ports/market-data.repository';
 import type { OrderRepository } from '@/orders/domain/ports/order.repository';
@@ -26,11 +27,16 @@ const mockMarketData: Mocked<MarketDataRepository> = {
 const mockInstrumentTypes: Mocked<InstrumentTypeRepository> = {
   searchTypeById: vi.fn(),
 };
+const mockIdempotency: Mocked<IdempotencyRepository> = {
+  searchByKey: vi.fn(),
+  save: vi.fn(),
+};
 const useCase = new SendOrderUseCase(
   passThroughUow,
   mockOrders,
   mockMarketData,
   mockInstrumentTypes,
+  mockIdempotency,
   new SummarizeLedgerService(),
 );
 
@@ -59,7 +65,7 @@ describe('run', () => {
       new Decimal(MARKET_PRICE),
     );
 
-    const order = await useCase.run(
+    const { body } = await useCase.run(
       SendOrderInputMother.create({
         instrumentId: INSTRUMENT_ID,
         side: 'BUY',
@@ -68,8 +74,8 @@ describe('run', () => {
       }),
     );
 
-    expect(order.getStatus()).toBe('REJECTED');
-    expect(order.getRejectionReason()).toBe('INSUFFICIENT_FUNDS');
+    expect(body.status).toBe('REJECTED');
+    expect(body.rejectionReason).toBe('INSUFFICIENT_FUNDS');
   });
 
   it('should reject with INSUFFICIENT_SHARES when a NEW LIMIT SELL already reserves the shares', async () => {
@@ -89,7 +95,7 @@ describe('run', () => {
     ]);
     mockMarketData.searchLatestClose.mockResolvedValue(new Decimal('110'));
 
-    const order = await useCase.run(
+    const { body } = await useCase.run(
       SendOrderInputMother.create({
         instrumentId: INSTRUMENT_ID,
         side: 'SELL',
@@ -98,8 +104,8 @@ describe('run', () => {
       }),
     );
 
-    expect(order.getStatus()).toBe('REJECTED');
-    expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
+    expect(body.status).toBe('REJECTED');
+    expect(body.rejectionReason).toBe('INSUFFICIENT_SHARES');
   });
 
   it('should not use a NEW CASH_IN as available cash', async () => {
@@ -109,7 +115,7 @@ describe('run', () => {
     ]);
     mockMarketData.searchLatestClose.mockResolvedValue(new Decimal('10'));
 
-    const order = await useCase.run(
+    const { body } = await useCase.run(
       SendOrderInputMother.create({
         instrumentId: INSTRUMENT_ID,
         side: 'BUY',
@@ -118,8 +124,8 @@ describe('run', () => {
       }),
     );
 
-    expect(order.getStatus()).toBe('REJECTED');
-    expect(order.getRejectionReason()).toBe('INSUFFICIENT_FUNDS');
+    expect(body.status).toBe('REJECTED');
+    expect(body.rejectionReason).toBe('INSUFFICIENT_FUNDS');
   });
 
   it('should throw a validation error when a MARKET amount gives a size above the INT maximum', async () => {

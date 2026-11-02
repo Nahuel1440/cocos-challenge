@@ -10,6 +10,7 @@ export class SendOrderInputMother {
       size: 1,
       amount: null,
       price: null,
+      idempotencyKey: null,
       ...overrides,
     };
   }
