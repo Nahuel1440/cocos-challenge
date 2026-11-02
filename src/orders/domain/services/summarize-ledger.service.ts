@@ -25,17 +25,24 @@ export interface LedgerSummary {
   holdings: ReadonlyMap<number, Holding>;
 }
 
-const EMPTY_HOLDING: Holding = {
-  quantity: 0,
-  availableQuantity: 0,
-  averagePrice: null,
+const CASH_SIGN: Record<LedgerSide, 1 | -1> = {
+  CASH_IN: 1,
+  SELL: 1,
+  BUY: -1,
+  CASH_OUT: -1,
 };
+
+interface Position {
+  quantity: number;
+  reservedQuantity: number;
+  averagePrice: Decimal | null;
+  held: boolean;
+}
 
 interface LedgerState {
   totalCash: Decimal;
   reservedCash: Decimal;
-  holdings: Map<number, Holding>;
-  reservedShares: Map<number, number>;
+  positions: Map<number, Position>;
 }
 
 interface ApplyEntryParams {
@@ -43,16 +50,34 @@ interface ApplyEntryParams {
   entry: LedgerEntry;
 }
 
-interface SettleTradeParams {
-  state: LedgerState;
-  entry: LedgerEntry;
-  amount: Decimal;
-}
-
 interface AverageAfterBuyParams {
-  held: Holding;
+  position: Position;
   entry: LedgerEntry;
   quantity: number;
+}
+
+function positionOf(state: LedgerState, instrumentId: number): Position {
+  const known = state.positions.get(instrumentId);
+  if (known) return known;
+
+  const created: Position = {
+    quantity: 0,
+    reservedQuantity: 0,
+    averagePrice: null,
+    held: false,
+  };
+  state.positions.set(instrumentId, created);
+  return created;
+}
+
+function holdPosition(state: LedgerState, instrumentId: number): Position {
+  const position = positionOf(state, instrumentId);
+  if (!position.held) {
+    position.held = true;
+    state.positions.delete(instrumentId);
+    state.positions.set(instrumentId, position);
+  }
+  return position;
 }
 
 export class SummarizeLedgerService {
@@ -60,8 +85,7 @@ export class SummarizeLedgerService {
     const state: LedgerState = {
       totalCash: new Decimal(0),
       reservedCash: new Decimal(0),
-      holdings: new Map(),
-      reservedShares: new Map(),
+      positions: new Map(),
     };
     const replayOrder = [...entries].sort(
       (a, b) => a.datetime.getTime() - b.datetime.getTime() || a.id - b.id,
@@ -75,7 +99,7 @@ export class SummarizeLedgerService {
     return {
       totalCash: state.totalCash,
       availableCash: state.totalCash.minus(state.reservedCash),
-      holdings: this.withAvailableQuantity(state),
+      holdings: this.toHoldings(state),
     };
   }
 
@@ -88,8 +112,7 @@ export class SummarizeLedgerService {
       );
     }
     if (entry.side === 'SELL') {
-      const reserved = state.reservedShares.get(entry.instrumentId) ?? 0;
-      state.reservedShares.set(entry.instrumentId, reserved + entry.size);
+      positionOf(state, entry.instrumentId).reservedQuantity += entry.size;
     }
   }
 
@@ -97,62 +120,51 @@ export class SummarizeLedgerService {
     const { state, entry } = params;
     const amount = entry.price.times(entry.size);
 
-    if (entry.side === 'CASH_IN')
-      state.totalCash = state.totalCash.plus(amount);
-    if (entry.side === 'CASH_OUT')
-      state.totalCash = state.totalCash.minus(amount);
-    if (entry.side === 'BUY') this.settleBuy({ state, entry, amount });
-    if (entry.side === 'SELL') this.settleSell({ state, entry, amount });
+    state.totalCash = state.totalCash.plus(amount.times(CASH_SIGN[entry.side]));
+    if (entry.side === 'BUY') this.settleBuy({ state, entry });
+    if (entry.side === 'SELL') this.settleSell({ state, entry });
   }
 
-  private settleBuy(params: SettleTradeParams): void {
-    const { state, entry, amount } = params;
+  private settleBuy(params: ApplyEntryParams): void {
+    const { state, entry } = params;
+    const position = holdPosition(state, entry.instrumentId);
+    const quantity = position.quantity + entry.size;
 
-    state.totalCash = state.totalCash.minus(amount);
-
-    const held = state.holdings.get(entry.instrumentId) ?? EMPTY_HOLDING;
-    const quantity = held.quantity + entry.size;
-    const averagePrice = this.averageAfterBuy({ held, entry, quantity });
-    state.holdings.set(entry.instrumentId, { ...held, quantity, averagePrice });
+    position.averagePrice = this.averageAfterBuy({ position, entry, quantity });
+    position.quantity = quantity;
   }
 
   private averageAfterBuy(params: AverageAfterBuyParams): Decimal | null {
-    const { held, entry, quantity } = params;
+    const { position, entry, quantity } = params;
     const positionIsClosed = quantity <= 0;
-    const { averagePrice } = held;
+    const { averagePrice } = position;
 
     if (positionIsClosed) return null;
     if (averagePrice === null) return entry.price;
 
     return averagePrice
-      .times(held.quantity)
+      .times(position.quantity)
       .plus(entry.price.times(entry.size))
       .div(quantity);
   }
 
-  private settleSell(params: SettleTradeParams): void {
-    const { state, entry, amount } = params;
+  private settleSell(params: ApplyEntryParams): void {
+    const { state, entry } = params;
+    const position = holdPosition(state, entry.instrumentId);
 
-    state.totalCash = state.totalCash.plus(amount);
-
-    const holding = state.holdings.get(entry.instrumentId) ?? EMPTY_HOLDING;
-    const quantity = holding.quantity - entry.size;
-    const averagePrice = quantity <= 0 ? null : holding.averagePrice;
-    state.holdings.set(entry.instrumentId, {
-      ...holding,
-      quantity,
-      averagePrice,
-    });
+    position.quantity -= entry.size;
+    if (position.quantity <= 0) position.averagePrice = null;
   }
 
-  private withAvailableQuantity(state: LedgerState): Map<number, Holding> {
+  private toHoldings(state: LedgerState): Map<number, Holding> {
     const holdings = new Map<number, Holding>();
 
-    for (const [instrumentId, holding] of state.holdings) {
-      const reserved = state.reservedShares.get(instrumentId) ?? 0;
+    for (const [instrumentId, position] of state.positions) {
+      if (!position.held) continue;
       holdings.set(instrumentId, {
-        ...holding,
-        availableQuantity: holding.quantity - reserved,
+        quantity: position.quantity,
+        availableQuantity: position.quantity - position.reservedQuantity,
+        averagePrice: position.averagePrice,
       });
     }
 

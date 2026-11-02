@@ -119,6 +119,21 @@ describe('run', () => {
     expect(holding?.availableQuantity).toBe(6);
   });
 
+  it('should not list a holding for a NEW SELL on an instrument with no holding', () => {
+    const PAMP_ID = 47;
+    const ENTRIES = [
+      LedgerEntryMother.newSell({
+        instrumentId: PAMP_ID,
+        size: 4,
+        price: '150',
+      }),
+    ];
+
+    const summary = summarizeLedger.run(ENTRIES);
+
+    expect(summary.holdings.size).toBe(0);
+  });
+
   it('should recompute the moving average on a second BUY', () => {
     const PAMP_ID = 47;
     const ENTRIES = [
