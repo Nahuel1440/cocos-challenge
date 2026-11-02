@@ -17,7 +17,7 @@ src/<module>/
 
 Modules: `orders`, `portfolio`, `instruments`, `shared`. Create only the folders a module uses. `portfolio` imports `@/orders/domain/...`, never the reverse. Unit of work: `src/shared/application/unit-of-work.port.ts` (`UnitOfWork`, `UNIT_OF_WORK`), adapter in `src/shared/infrastructure/transactions/`. Shared HTTP pieces (guard, filter, `to-decimal-string.ts`) live in `src/shared/infrastructure/http/`.
 
-Lint enforces layer imports, `@/` imports, `public`/`private` on members, `run` as the only non-private method of services and use cases, one params object, no destructuring in a signature, port method prefixes, `find*` never `null`, Symbol tokens, no `$transaction` in repositories, no free functions, no HTTP status in exceptions. Lint does not check: `@/generated/prisma` imported outside `infrastructure/`, params destructured on the first line, business questions hidden in a query name, module direction, `lockLedger` as the first line of the work.
+Lint enforces layer imports, `@/` imports, `public`/`private` on members, `run` as the only non-private method of services and use cases, one params object in services and use cases, no destructuring in a signature, no inline object types in a signature, port method prefixes (`save`/`search`/`find`, plus `lockLedger`), Symbol tokens. Lint does not check: `@/generated/prisma` imported outside `infrastructure/`, params object on every other method, params destructured on the first line, `find*` never returning `null`, no `$transaction` in repositories (they join the ambient transaction), no exported free functions in `domain/`, no HTTP status in domain exceptions, business questions hidden in a query name, module direction, `lockLedger` as the first line of the work.
 
 ## Rules
 
