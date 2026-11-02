@@ -32,7 +32,7 @@ export class {Module}Controller {
 }
 ```
 
-Handlers whose parameters are all Nest decorators are exempt from the params-object rule. Return `toPrimitives()` only when the entity has no money fields; otherwise call a presenter in `infrastructure/http/` that shapes the JSON and rounds every `Decimal` with `toDecimalString`. Wrap collections in an object (`{ "instruments": [...] }`). `Date` goes over the wire as an ISO string. The global filter renders errors; the controller never catches.
+The `userId` comes from the guard (`request.userId`) and goes inside the use case input; `POST /orders` sets `Location`. Handlers whose parameters are all Nest decorators are exempt from the params-object rule. Return `toPrimitives()` only when the entity has no money fields; otherwise call a presenter in `infrastructure/http/` that shapes the JSON and rounds every `Decimal` with `toDecimalString`. Wrap collections in an object (`{ "instruments": [...] }`). `Date` goes over the wire as an ISO string. The global filter renders errors; the controller never catches.
 
 ## Repository adapter
 
