@@ -31,4 +31,75 @@ describe('assertLocalDatabaseUrl', () => {
       expect(() => assertLocalDatabaseUrl(local, undefined)).not.toThrow();
     }
   });
+
+  it('should refuse a remote --url flag even when DATABASE_URL is local', () => {
+    const local = 'postgresql://u:p@localhost:5434/db';
+    const remote = 'postgresql://u:p@example.invalid/db';
+
+    expect(() =>
+      assertLocalDatabaseUrl(local, undefined, [
+        'node',
+        'prisma',
+        'db',
+        'push',
+        '--url',
+        remote,
+      ]),
+    ).toThrow(/ALLOW_REMOTE_DB/);
+    expect(() =>
+      assertLocalDatabaseUrl(local, undefined, [
+        'node',
+        'prisma',
+        'db',
+        'push',
+        `--url=${remote}`,
+      ]),
+    ).toThrow(/ALLOW_REMOTE_DB/);
+    expect(() =>
+      assertLocalDatabaseUrl(local, 'yes', [
+        'node',
+        'prisma',
+        'db',
+        'push',
+        '--url',
+        remote,
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      assertLocalDatabaseUrl(local, undefined, [
+        'node',
+        'prisma',
+        'db',
+        'push',
+        '--url',
+        local,
+      ]),
+    ).not.toThrow();
+  });
+
+  it('should keep the guard when generate is not the command', () => {
+    const remote = 'postgresql://u:p@example.invalid/db';
+
+    expect(() =>
+      assertLocalDatabaseUrl(remote, undefined, [
+        'node',
+        'prisma',
+        'migrate',
+        'dev',
+        '--name',
+        'generate',
+      ]),
+    ).toThrow(/ALLOW_REMOTE_DB/);
+    expect(() =>
+      assertLocalDatabaseUrl(remote, undefined, [
+        'node',
+        'prisma',
+        'generate',
+        '--sql',
+      ]),
+    ).toThrow(/ALLOW_REMOTE_DB/);
+    expect(() =>
+      assertLocalDatabaseUrl(remote, undefined, ['node', 'prisma', 'generate']),
+    ).not.toThrow();
+  });
 });

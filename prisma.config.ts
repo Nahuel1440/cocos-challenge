@@ -11,10 +11,7 @@ try {
   // no .env: DATABASE_URL must already be in the environment
 }
 
-// `prisma generate` (postinstall) never opens a connection, so it must not be blocked.
-if (!process.argv.includes('generate')) {
-  assertLocalDatabaseUrl(process.env.DATABASE_URL, allowRemote);
-}
+assertLocalDatabaseUrl(process.env.DATABASE_URL, allowRemote, process.argv);
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
