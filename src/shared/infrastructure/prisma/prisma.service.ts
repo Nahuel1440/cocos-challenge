@@ -8,13 +8,14 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    super({
-      adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
-    });
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) throw new Error('DATABASE_URL is not set');
+    super({ adapter: new PrismaPg({ connectionString }) });
   }
 
   public async onModuleInit(): Promise<void> {
     await this.$connect();
+    await this.$queryRaw`SELECT 1`;
   }
 
   public async onModuleDestroy(): Promise<void> {
