@@ -27,7 +27,6 @@ export interface PlaceOrderParams {
   now: Date;
 }
 
-// Serialization shape. Money is a decimal string; Decimal stays inside the entity.
 export interface OrderPrimitives {
   id: number | null; // null until the database assigns it on save
   userId: number;
@@ -54,12 +53,12 @@ interface OrderProps {
   datetime: Date;
 }
 
-interface StatusForParams {
+interface DeriveStatusParams {
   input: OrderInput;
   rejection: RejectionReason | null;
 }
 
-interface FindRejectionParams {
+interface DeriveRejectionReasonParams {
   input: OrderInput;
   price: Decimal | null;
   size: number | null;
@@ -67,12 +66,12 @@ interface FindRejectionParams {
   availableShares: number;
 }
 
-interface ResolveSizeParams {
+interface DeriveSizeParams {
   input: OrderInput;
   price: Decimal | null;
 }
 
-interface BuysNoShareParams {
+interface IsAmountBelowOneShareParams {
   input: OrderInput;
   size: number;
 }
@@ -85,8 +84,8 @@ export class Order {
   private readonly type: OrderType;
   private readonly size: number | null;
   private readonly price: Decimal | null;
-  private status: OrderStatus;
-  private rejectionReason: RejectionReason | null;
+  private readonly status: OrderStatus;
+  private readonly rejectionReason: RejectionReason | null;
   private readonly datetime: Date;
 
   private constructor(props: OrderProps) {
@@ -119,9 +118,11 @@ export class Order {
     const { userId, input, marketPrice, availableCash, availableShares, now } =
       params;
     const price =
-      input.type === 'LIMIT' ? input.limitPrice : Order.usable(marketPrice);
-    const size = Order.resolveSize({ input, price });
-    const rejection = Order.findRejection({
+      input.type === 'LIMIT'
+        ? input.limitPrice
+        : Order.positivePriceOrNull(marketPrice);
+    const size = Order.deriveSize({ input, price });
+    const rejection = Order.deriveRejectionReason({
       input,
       price,
       size,
@@ -137,13 +138,13 @@ export class Order {
       type: input.type,
       size,
       price,
-      status: Order.statusFor({ input, rejection }),
+      status: Order.deriveStatus({ input, rejection }),
       rejectionReason: rejection,
       datetime: now,
     });
   }
 
-  private static statusFor(params: StatusForParams): OrderStatus {
+  private static deriveStatus(params: DeriveStatusParams): OrderStatus {
     const { input, rejection } = params;
 
     if (rejection !== null) return 'REJECTED';
@@ -151,14 +152,15 @@ export class Order {
     return input.type === 'LIMIT' ? 'NEW' : 'FILLED';
   }
 
-  private static findRejection(
-    params: FindRejectionParams,
+  private static deriveRejectionReason(
+    params: DeriveRejectionReasonParams,
   ): RejectionReason | null {
     const { input, price, size, availableCash, availableShares } = params;
 
     // size is null only when price is null: the order came with an amount
     if (price === null || size === null) return 'NO_MARKET_PRICE';
-    if (Order.buysNoShare({ input, size })) return 'AMOUNT_BELOW_ONE_SHARE';
+    if (Order.isAmountBelowOneShare({ input, size }))
+      return 'AMOUNT_BELOW_ONE_SHARE';
     if (input.side === 'BUY' && price.times(size).greaterThan(availableCash)) {
       return 'INSUFFICIENT_FUNDS';
     }
@@ -169,14 +171,15 @@ export class Order {
     return null;
   }
 
-  // A market price of 0 or below is no price (D-21): the order is rejected, not filled at 0
-  private static usable(marketPrice: Decimal | null): Decimal | null {
+  private static positivePriceOrNull(
+    marketPrice: Decimal | null,
+  ): Decimal | null {
     if (marketPrice === null || marketPrice.lessThanOrEqualTo(0)) return null;
 
     return marketPrice;
   }
 
-  private static resolveSize(params: ResolveSizeParams): number | null {
+  private static deriveSize(params: DeriveSizeParams): number | null {
     const { input, price } = params;
 
     if (input.size !== null) return input.size;
@@ -185,7 +188,9 @@ export class Order {
     return (input.amount ?? new Decimal(0)).divToInt(price).toNumber();
   }
 
-  private static buysNoShare(params: BuysNoShareParams): boolean {
+  private static isAmountBelowOneShare(
+    params: IsAmountBelowOneShareParams,
+  ): boolean {
     const { input, size } = params;
     const cameWithAmount = input.amount !== null;
 
@@ -208,14 +213,6 @@ export class Order {
       rejectionReason: this.rejectionReason,
       datetime: this.datetime,
     };
-  }
-
-  public getId(): number | null {
-    return this.id;
-  }
-
-  public getUserId(): number {
-    return this.userId;
   }
 
   public getStatus(): OrderStatus {
