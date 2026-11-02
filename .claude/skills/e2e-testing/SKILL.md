@@ -1,74 +1,26 @@
 ---
 name: e2e-testing
-description: "Writes Vitest + supertest functional tests for the Cocos API over HTTP against a real Postgres (Testcontainers) with the seed. MUST be used when writing or editing `test/**/*.e2e-spec.ts` files, testing an endpoint or HTTP flow, or when the user says 'e2e test', 'functional test', 'test this endpoint'. Do NOT use for pure domain logic (unit-testing skill)."
+description: "Writes Vitest + supertest tests for the Cocos API over HTTP against a real Postgres (Testcontainers) with the seed. MUST be used when writing or editing `test/**/*.e2e-spec.ts`, or when the user says 'e2e test' or 'test this endpoint'. Do NOT use for pure domain logic (unit-testing skill)."
 ---
 
-Tests go over HTTP (`supertest`) on a Testcontainers Postgres, truncating and reloading the seed between tests. Run with `npm run test:e2e` (`vitest.config.e2e.mts`, glob `test/**/*.e2e-spec.ts`). Docker is required.
+Tests go over HTTP (`supertest`) on a Testcontainers Postgres. Run with `npm run test:e2e` (Docker required). Harness in `test/support/`: `postgres-global-setup.ts` starts the container and applies migrations; call `truncateAllTables()` and `reloadSeed()` in `beforeEach`.
 
-## Harness
+Boot the real `AppModule` with the same global pipes and filters as `main.ts`; without them validation and error mapping vanish and 400s become 500s. If no app-boot helper or `supertest` exists yet, STOP and tell the user.
 
-| Piece | Role |
-|---|---|
-| `test/support/postgres-global-setup.ts` | Starts one Testcontainers Postgres per suite and applies the migrations. |
-| `test/support/truncate-all-tables.ts` | Empties every table. Call it in `beforeEach`. |
-| `test/support/reload-seed.ts` | Reloads the seed after the truncate. Call it in `beforeEach`. |
-
-Boot the real `AppModule` with the same global pipes and filters as `main.ts`. If a test app skips them, validation and error mapping vanish silently and 400s turn into 500s. If no app-boot helper exists yet, STOP and ask the user where it lives. `supertest` is not in `package.json` yet; if it is still missing, STOP and tell the user.
-
-## Pattern
+- The seed is the world that already existed (users, instruments, market data); do not recreate it. Anything with business rules goes through the real endpoint (`POST /orders` with a LIMIT, then cancel), never an inserted row. Use real seed user ids.
+- Cover 1-2 critical flows per endpoint, the `X-User-Id` check (missing, invalid, unknown → `400`, assert the body `code`), and one validation `400`. Push branch coverage to unit tests.
+- Send-order returns `201` for `FILLED`, `NEW` and `REJECTED`; cancel returns `200`, `409`, `404`.
+- Concurrency: fire requests with `Promise.all` and assert cash or shares never go below zero. Seed user 1 holds −10 of instrument 31.
+- Idempotency: same `Idempotency-Key` and body → original response plus `Idempotent-Replayed: true`; same key, different body → `422`.
+- Money in responses is a decimal string; assert strings, never numbers.
 
 ```typescript
-describe('POST /orders (e2e)', () => {
-  beforeEach(async () => {
-    await truncateAllTables();
-    await reloadSeed();
-  });
+it('should return 201 FILLED when a MARKET BUY has enough cash', async () => {
+  const res = await request(app.getHttpServer())
+    .post('/orders').set('X-User-Id', '1')
+    .send({ instrumentId: 31, side: 'BUY', type: 'MARKET', size: 1 })
+    .expect(201);
 
-  it('should return 201 FILLED when a MARKET BUY has enough cash', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/orders')
-      .set('X-User-Id', '1')
-      .send({ instrumentId: 31, side: 'BUY', type: 'MARKET', size: 1 })
-      .expect(201);
-
-    expect(res.body.status).toBe('FILLED');
-  });
+  expect(res.body.status).toBe('FILLED');
 });
-```
-
-## Fixture policy
-
-- The seed is "the world that already existed" (users, instruments, market data). Do not recreate it by hand.
-- Anything with business rules (creating, rejecting, cancelling an order) goes through the real endpoint, so the test also exercises validation and domain logic.
-- Seed user ids must be real rows. Never fabricate an id for a flow that writes rows.
-- Assert side effects by reading the database when the response body is not the contract under test.
-
-## What to cover
-
-- 1–2 critical flows per endpoint. Push branch coverage down to unit tests.
-- The `X-User-Id` check on every route: missing, invalid or unknown user → `400` with body code `MISSING_USER_ID`, `INVALID_USER_ID` or `UNKNOWN_USER`. Assert the `code`.
-- One input-validation `400` per endpoint.
-- Status codes as SPEC says: send-order `201` for `FILLED`, `NEW` and `REJECTED`; cancel `200`, `409`, `404`.
-- Concurrency: fire concurrent orders with `Promise.all` and assert cash or shares never go below zero. Mind that the seed has user 1 with holding −10 on instrument 31 (SPEC, seed pitfalls).
-- Idempotency: same `Idempotency-Key` and same body → the original response plus `Idempotent-Replayed: true`, no second order; same key with a different body → `422`. A `201` carries `Location`.
-- Money in responses is a decimal string. Assert strings, never numbers.
-
-## Anti-patterns
-
-| Anti-pattern | Instead |
-|---|---|
-| Hand-rolled app that skips `main.ts` pipes and filters | Boot with the same pipes and filters as main.ts |
-| Inserting an order row to test cancelling it | `POST /orders` with a LIMIT, then cancel |
-| 15 e2e cases per endpoint | 1–2 flows + header and validation checks |
-| State shared between tests | Truncate and reload the seed in `beforeEach` |
-
-## Checklist
-
-```
-- [ ] App booted with the same pipes and filters as main.ts
-- [ ] truncate + reload seed in beforeEach
-- [ ] Business actions go through real endpoints
-- [ ] X-User-Id missing/invalid/unknown → 400 with code covered
-- [ ] Validation 400 covered
-- [ ] Money asserted as decimal strings
 ```
