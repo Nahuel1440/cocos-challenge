@@ -790,6 +790,115 @@ describe('place', () => {
     expect(order.toPrimitives().size).toBe(0);
   });
 
+  it('should reject with INSUFFICIENT_FUNDS when the size computed from the amount costs more than the available cash', () => {
+    // Arrange
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('10000.00'),
+    });
+    const AVAILABLE_CASH = new Decimal('9299.99');
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: new Decimal('930.00'),
+      availableCash: AVAILABLE_CASH,
+      availableShares: 0,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('INSUFFICIENT_FUNDS');
+    expect(order.toPrimitives().size).toBe(10);
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when the size computed from the amount is above the available shares', () => {
+    // Arrange
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('10000.00'),
+    });
+    const AVAILABLE_SHARES = 9;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: new Decimal('930.00'),
+      availableCash: new Decimal('0'),
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
+    expect(order.toPrimitives().size).toBe(10);
+  });
+
+  it('should reject with AMOUNT_BELOW_ONE_SHARE before checking funds when a MARKET BUY amount buys no share', () => {
+    // Arrange
+    const NEGATIVE_AVAILABLE_CASH = new Decimal('-1');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: new Decimal('50.00'),
+    });
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: new Decimal('100.00'),
+      availableCash: NEGATIVE_AVAILABLE_CASH,
+      availableShares: 0,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('AMOUNT_BELOW_ONE_SHARE');
+  });
+
+  it('should place a NEW LIMIT SELL with the size computed from the amount', () => {
+    // Arrange
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'LIMIT',
+      size: null,
+      amount: new Decimal('10000.00'),
+      limitPrice: new Decimal('500.00'),
+    });
+    const AVAILABLE_SHARES = 20;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: new Decimal('930.00'),
+      availableCash: new Decimal('0'),
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('NEW');
+    expect(order.getRejectionReason()).toBeNull();
+    expect(order.toPrimitives().price).toBe('500.00');
+    expect(order.toPrimitives().size).toBe(20);
+  });
+
   it.each([
     { marketPrice: '0', size: 5, amount: null, expectedSize: 5 },
     { marketPrice: '-1.00', size: null, amount: '100.00', expectedSize: null },
