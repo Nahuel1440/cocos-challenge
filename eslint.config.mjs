@@ -129,7 +129,9 @@ const restrictedSyntax = (...selectors) => [
 ];
 
 export default tseslint.config(
-  { ignores: ['dist/', 'coverage/', 'node_modules/', '.atl/'] },
+  {
+    ignores: ['dist/', 'coverage/', 'node_modules/', '.atl/', 'src/generated/'],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
