@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger as NestLogger } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
@@ -14,4 +15,8 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 3000);
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  NestLogger.flush();
+  new NestLogger('Bootstrap').error(error);
+  process.exit(1);
+});
