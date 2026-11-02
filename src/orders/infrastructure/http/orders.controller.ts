@@ -19,7 +19,6 @@ interface AuthenticatedRequest {
 }
 
 interface SendOrderResponse {
-  status(code: number): unknown;
   setHeader(name: string, value: string): void;
 }
 
@@ -47,7 +46,6 @@ export class OrdersController {
       price: dto.price ?? null,
       idempotencyKey: idempotencyKey ?? null,
     });
-    response.status(result.status);
     response.setHeader('Location', `/orders/${result.orderId}`);
 
     if (result.replayed) {
