@@ -28,20 +28,19 @@ export class CancelOrderUseCase {
   public async run(input: CancelOrderInput): Promise<Order> {
     const { userId, orderId } = input;
 
-    const order = await this.uow.run({
-      userId,
-      work: async () => {
-        const found = await this.orders.findById(orderId); // after the per-user lock
-        if (found.getUserId() !== userId) {
-          throw new OrderNotFoundException(orderId); // another user's order looks missing
-        }
+    const order = await this.uow.run(async () => {
+      await this.orders.lockLedger(userId); // first line: per-user lock, before any read
 
-        const now = new Date();
+      const found = await this.orders.findById(orderId);
+      if (found.getUserId() !== userId) {
+        throw new OrderNotFoundException(orderId); // another user's order looks missing
+      }
 
-        found.cancel(now);
+      const now = new Date(); // app clock, after the lock
 
-        return this.orders.save(found);
-      },
+      found.cancel(now);
+
+      return this.orders.save(found);
     });
 
     this.logger.log(`Order ${orderId} cancelled (${order.getStatus()})`);
@@ -71,27 +70,32 @@ export class CancelOrderUseCase {
 | Get the portfolio | `GetPortfolioUseCase` |
 | Search instruments | `SearchInstrumentsUseCase` |
 
-Domain services are named the same way with `Service` (`DecideOrderService`) and live in `domain/services/`.
+Domain services are named the same way with `Service` (`SummarizeLedgerService`) and live in `domain/services/`.
 
 ## Transactions
 
 Command use cases own the transaction; repositories never open one. Full rules in [conventions.md](conventions.md#transactions-unit-of-work).
 
 ```typescript
-return this.uow.run({
-  userId: input.userId, // per-user lock for send and cancel
-  work: async () => {
-    const entries = await this.orders.searchByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
-    const price = await this.marketData.searchLatestClose(input.instrumentId);
-    const summary = this.summarizeLedger.run(entries);
-    const now = new Date();
+return this.uow.run(async () => {
+  await this.orders.lockLedger(userId);
+  const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
+  const price = await this.marketData.searchLatestClose(instrumentId);
+  const summary = this.summarizeLedger.run(entries);
+  const order = Order.place({
+    userId,
+    input,
+    marketPrice: price,
+    availableCash: summary.availableCash,
+    availableShares: summary.holdings.get(instrumentId)?.availableQuantity ?? 0,
+    now: new Date(),
+  });
 
-    return this.orders.save(this.decideOrder.run({ input, summary, price, now }));
-  },
+  return this.orders.save(order);
 });
 ```
 
-- Take the lock (`userId`) for every write path that changes a user's orders. A read-only use case runs `uow.run({ work })` for one snapshot, with no `userId`.
+- Take the lock for every write path that changes a user's orders: `await this.orders.lockLedger(userId);` is the first line of the work, before any read. A read-only use case runs `uow.run(work, { isolation: 'repeatable-read', readOnly: true })` for one snapshot, with no lock.
 - A single-write use case with no lock calls `repo.save` directly.
 - Logging and other side effects that must not roll back go after `run` returns.
 - A job that processes many users runs one `uow.run` per user, so one failure does not roll back the others.
@@ -145,8 +149,8 @@ A use case may read from one module and write to another when the operation has 
 
 Strict TDD; see the unit-testing skill for the full method. The points specific to use cases:
 
-- Instantiate the use case manually with mocked ports and **real** domain services: `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())`.
+- Instantiate the use case manually with mocked ports and **real** domain services: `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService())` (`Order.place` is on the entity, so it needs no instance).
 - Mock the port interface, not the concrete repository. The mock must match the real port shape (every method of the interface).
-- The unit-of-work mock runs `work` and returns its result: `run: vi.fn(({ work }) => work())`. Assert the `userId` it received for send and cancel.
+- The unit-of-work mock runs `work` and returns its result: `run: vi.fn((work) => work())`. Assert that send and cancel call `lockLedger(userId)` before the first read.
 - Assert the outcome: the saved order, the thrown exception, the status. Domain rules are tested in the entity and service specs, not here.
 - Test happy path plus each domain exception. Do not assert call order or internal methods.

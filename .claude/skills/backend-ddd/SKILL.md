@@ -32,35 +32,36 @@ Do NOT use for tests (unit-testing, e2e-testing skills), for shared infrastructu
 ```
 src/<module>/
 ├── domain/
-│   ├── entities/        # Order: identity + state transitions
+│   ├── entities/        # Order: identity, state transitions, Order.place (send-order rules)
 │   ├── value-objects/   # only when a value has its own invariant (none today)
-│   ├── services/        # SummarizeLedgerService, DecideOrderService: the business rules
+│   ├── services/        # SummarizeLedgerService: rules over many orders
 │   ├── ports/           # OrderRepository interface + ORDER_REPOSITORY symbol
 │   └── exceptions/      # OrderNotFoundException
 ├── application/
 │   └── use-cases/       # SendOrderUseCase, CancelOrderUseCase
 ├── infrastructure/
 │   ├── persistence/     # PrismaOrderRepository
-│   └── http/            # OrdersController, SendOrderDto
+│   └── http/            # OrdersController, SendOrderDto, OrderPresenter
 └── <module>.module.ts
 ```
 
 Modules: `orders`, `portfolio`, `instruments`, plus `src/shared` with the same layout. Create only the folders a module uses: `instruments` needs `ports/`, `use-cases/`, `persistence/` and `http/`, nothing else.
 
-- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`, `UnitOfWork` + `UNIT_OF_WORK` (transaction and per-user lock).
-- `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id.
+- `src/shared/domain/ports/`: `UserRepository` + `USER_REPOSITORY`.
+- `src/shared/application/unit-of-work.port.ts`: `UnitOfWork` + `UNIT_OF_WORK`, `run(work, options?)` (transaction and isolation only; no user, no lock). Adapter: `src/shared/infrastructure/transactions/cls-unit-of-work.ts`.
+- `src/shared/infrastructure/http/`: the `X-User-Id` guard, the exception filter, the request id, `to-decimal-string.ts`.
 
 | Layer | May import | Never imports |
 |---|---|---|
 | `domain/` | `decimal.js`, domain code (its own, `@/shared/domain`, other modules' `domain/`) | `@nestjs/*`, `@prisma/client`, application, infrastructure |
-| `application/` | domain (ports included, e.g. `UnitOfWork`), `@nestjs/common` (`Injectable`, `Inject`, `Logger`) | infrastructure, Prisma, DTOs |
+| `application/` | domain, application ports (e.g. `UnitOfWork`), `@nestjs/common` (`Injectable`, `Inject`, `Logger`) | infrastructure, Prisma, DTOs |
 | `infrastructure/` | anything | — |
 
 Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/domain/...`; `portfolio` imports from `orders`, never the reverse: `orders` owns the ledger.
 
 ## Rule 1: Business rules live in domain services
 
-A rule over several orders or several inputs is a domain service: a class in `domain/services/` named `{Verb}{Noun}Service` with exactly ONE public method, `run(params)`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has three: `SummarizeLedgerService` (cash, holdings, average price), `DecideOrderService` (`FILLED`, `NEW` or `REJECTED`), `BuildPortfolioService` (positions and returns). File names follow the class: `summarize-ledger.service.ts`.
+A rule over several orders or several inputs is a domain service: a class in `domain/services/` named `{Verb}{Noun}Service` with exactly ONE public method, `run(params)`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has two: `SummarizeLedgerService` (cash, holdings, average price) and `BuildPortfolioService` (positions and returns). The send-order rules are not a service: they live in `Order.place(params)` on the entity, which takes plain values (`input`, `marketPrice`, `availableCash`, `availableShares`) and returns an `Order` already `FILLED`, `NEW` or `REJECTED`. File names follow the class: `summarize-ledger.service.ts`.
 
 ```typescript
 // src/orders/domain/services/summarize-ledger.service.ts
@@ -94,7 +95,7 @@ public cancel(now: Date): void {
 
 ## Rule 3: A rejection is a value, an error is an exception
 
-`REJECTED` is a stored order and a `201`: `DecideOrderService.run` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain`, declare a stable `code` and an `ErrorCategory`, and carry no HTTP status; the global exception filter in `src/shared/infrastructure/http` maps the category to the status and renders the error body. Never extend Nest's `HttpException` in `domain/`.
+`REJECTED` is a stored order and a `201`: `Order.place` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain`, declare a stable `code` and an `ErrorCategory`, and carry no HTTP status; the global exception filter in `src/shared/infrastructure/http` maps the category to the status and renders the error body. Never extend Nest's `HttpException` in `domain/`.
 
 ```typescript
 // src/orders/domain/exceptions/order-not-found.exception.ts
@@ -144,7 +145,7 @@ Mapping lives in `{Entity}PersistenceMapper` (`infrastructure/persistence/`), ev
 
 ## Rule 6: Use cases orchestrate, controllers call use cases
 
-A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `UnitOfWork.run({ userId, work })` when it needs one transaction (send and cancel take the per-user lock; the portfolio reads one snapshot with no `userId`) and logs one outcome line per order. A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Money leaves as a string rounded once there, `ROUND_HALF_UP` to 2 decimals.
+A use case takes a primitive input (not the DTO), loads through ports, calls domain services and entities, saves through ports, runs inside `uow.run(work, options?)` when it needs one transaction (send and cancel start the work with `await this.orders.lockLedger(userId)`; the portfolio reads one snapshot with `{ isolation: 'repeatable-read', readOnly: true }` and no lock) and logs one outcome line per order. A controller validates the DTO, calls one use case, then a presenter when the wire shape differs from `toPrimitives()`: no repository, no domain service, no math, no `try/catch`. Domain services keep full precision and return `Decimal`; they never round or build strings. The currency scale is a domain fact: `MONEY_SCALE = 2` (ARS minor unit) lives in `@/shared/domain`. The presenter in `<module>/infrastructure/http/` shapes the JSON and turns each `Decimal` into a string with the shared `toDecimalString` helper (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer rounds.
 
 ```typescript
 // src/orders/application/use-cases/send-order.use-case.ts
@@ -155,48 +156,51 @@ export class SendOrderUseCase {
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(MARKET_DATA_REPOSITORY) private readonly marketData: MarketDataRepository,
     private readonly summarizeLedger: SummarizeLedgerService,
-    private readonly decideOrder: DecideOrderService,
   ) {}
 
   public run(input: SendOrderInput): Promise<Order> {
     const { userId, instrumentId } = input;
 
-    return this.uow.run({
-      userId, // per-user lock
-      work: async () => {
-        const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
-        const price = await this.marketData.searchLatestClose(instrumentId);
-        const summary = this.summarizeLedger.run(entries);
-        const now = new Date();
+    return this.uow.run(async () => {
+      await this.orders.lockLedger(userId); // first line: per-user lock, before any read
 
-        const order = this.decideOrder.run({ input, summary, price, now });
+      const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
+      const price = await this.marketData.searchLatestClose(instrumentId);
+      const summary = this.summarizeLedger.run(entries);
+      const order = Order.place({
+        userId,
+        input,
+        marketPrice: price,
+        availableCash: summary.availableCash,
+        availableShares: summary.holdings.get(instrumentId)?.availableQuantity ?? 0,
+        now: new Date(), // app clock, after the lock
+      });
 
-        return this.orders.save(order);
-      },
+      return this.orders.save(order);
     });
   }
 }
 ```
 
-Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, DecideOrderService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, SummarizeLedgerService]` so `portfolio` can read the ledger.
+Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, SummarizeLedgerService]` so `portfolio` can read the ledger.
 
 ## Rule 7: Members, parameters and style
 
 - Every class member states `public`, `private` or `protected`. Constructors carry no modifier; Nest DI constructor parameter properties are `private readonly`.
 - A domain service or use case has exactly ONE non-private method, named `run` (static and `protected` count). Entities may have several.
 - A method or function with more than one parameter takes one `params` object typed by a named interface (no inline object types). Destructure it on the FIRST line of the body, never in the signature. The id travels inside the object, never next to it. Exempt: constructors (NestJS DI, and exceptions that pass values straight to `super(...)`), controller handlers whose parameters are all Nest decorators, and inline arrow callbacks (`.map(({ x }) => ...)`).
-- Name a value before passing it: no inline `new Date()` or unexplained literals at the call site.
+- Name a value before passing it: no unexplained literals at the call site. `now: new Date()` inside a params object is allowed; a bare positional `new Date()` is not.
 - Name each invariant as a private method or a boolean (Named Guards). Group lines by meaning, with a blank line between steps (Blank Lines by Meaning).
 
 ```typescript
 // Bad: destructured in the signature, inline object type, positional id next to the object
-public run({ input, summary }: { input: SendOrderInput; summary: LedgerSummary }, price: Decimal): Order { ... }
+public static place({ input, marketPrice }: { input: SendOrderInput; marketPrice: Decimal }, availableCash: Decimal): Order { ... }
 
 // Good: named interface, destructured on the first line
-public run(params: DecideOrderParams): Order {
-  const { input, summary, price, now } = params;
+public static place(params: PlaceOrderParams): Order {
+  const { userId, input, marketPrice, availableCash, availableShares, now } = params;
 
-  return this.applyRules({ input, summary, price, now });
+  return Order.decide({ userId, input, marketPrice, availableCash, availableShares, now });
 }
 ```
 
@@ -204,7 +208,7 @@ ESLint enforces `public`/`private` on every member, `run` as the only non-privat
 
 ## Module Placement and Concurrency
 
-New infrastructure goes in a module named after its responsibility; a shared concern (transactions, clock) gets its own module. For an invariant, prefer a database constraint (translated into a domain exception in the repository); when it needs read-check-write over a user's orders, take the per-user lock through `UnitOfWork.run({ userId, work })`. See [conventions.md](references/conventions.md#concurrency-constraint-first-per-user-lock-second) and [conventions.md](references/conventions.md#module-placement).
+New infrastructure goes in a module named after its responsibility; a shared concern (transactions, clock) gets its own module. For an invariant, prefer a database constraint (translated into a domain exception in the repository); when it needs read-check-write over a user's orders, take the per-user lock with `lockLedger(userId)` as the first line of the work inside `uow.run`. See [conventions.md](references/conventions.md#concurrency-constraint-first-per-user-lock-second) and [conventions.md](references/conventions.md#module-placement).
 
 ## Naming
 
@@ -217,6 +221,8 @@ New infrastructure goes in a module named after its responsibility; a shared con
 | Use case | `send-order.use-case.ts` | `SendOrderUseCase`, method `run` |
 | Persistence mapper | `order-persistence.mapper.ts` | `OrderPersistenceMapper` |
 | Repository | `prisma-order.repository.ts` | `PrismaOrderRepository` |
+| Presenter | `order.presenter.ts` | `OrderPresenter` |
+| Decimal helper | `to-decimal-string.ts` | `toDecimalString` |
 | Controller, DTO | `orders.controller.ts`, `send-order.dto.ts` | `OrdersController`, `SendOrderDto` |
 
 Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e-testing skill (HTTP and database).
@@ -233,8 +239,9 @@ Tests: unit-testing skill (services, entities, use cases with mocked ports), e2e
 - [ ] Ports are an interface + Symbol, injected with @Inject(TOKEN)
 - [ ] Repositories only map and query
 - [ ] Controllers inject use cases only
+- [ ] Money is rounded only in the presenter via `toDecimalString`; the domain keeps `Decimal`
 - [ ] Port methods start with `save`/`search`/`find`; `find*` never returns `null`
 - [ ] Entities mutate through `void` commands, expose `getX()`, keep money as `Decimal` inside and strings in `Primitives`
 - [ ] Invariants are named guards; blank lines separate steps
-- [ ] Per-user lock taken by every write path of a user's orders
+- [ ] `lockLedger(userId)` is the first line of the work in every write path of a user's orders
 ```

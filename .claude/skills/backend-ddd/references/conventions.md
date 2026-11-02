@@ -69,24 +69,23 @@ A list query is always `search*`: an empty list is a valid answer, so it can nev
 
 **1. Prefer a database constraint** whenever the invariant can be written as one: a unique index, a check. Postgres enforces it under any concurrency with no lock and no retry. Prisma cannot declare partial or expression indexes; those live only in the migration SQL. The repository translates the violation into a domain exception (`catch` on the Prisma error code, then `throw new ...Exception`); the use case never sees a Prisma error. Check what Postgres reports for the index in an integration test.
 
-**2. Take a lock** when the invariant needs read-check-write over data other requests can change. Cocos derives cash and holdings from the whole order history of a user, so there is no single row to lock: the lock is the **per-user advisory lock** (`pg_advisory_xact_lock(userId)`), taken by `UnitOfWork.run({ userId, work })` and held until the transaction commits.
+**2. Take a lock** when the invariant needs read-check-write over data other requests can change. Cocos derives cash and holdings from the whole order history of a user, so there is no single row to lock: the lock is the **per-user advisory lock** (`pg_advisory_xact_lock(userId)`), taken by `await this.orders.lockLedger(userId)` (it runs `pg_advisory_xact_lock(namespace, userId)`) and held until the transaction commits.
 
 ```typescript
-return this.uow.run({
-  userId: input.userId,
-  work: async () => {
-    const entries = await this.orders.searchByUser({ userId: input.userId, statuses: ['FILLED', 'NEW'] });
-    // ...decide and save with the history that no other request can change now
-  },
+return this.uow.run(async () => {
+  await this.orders.lockLedger(userId); // first line, before any read
+  const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
+  // ...decide and save with the history that no other request can change now
 });
 ```
 
 Rules:
 
-- The lock runs only inside a transaction: `UnitOfWork.run` opens it, the repository never does.
-- Every write path that changes a user's orders takes it (send and cancel), including jobs. Read-only paths (the portfolio) skip the lock and read one snapshot inside `uow.run` without `userId`.
+- The lock runs only inside a transaction: `uow.run` opens it, the repository never does. `lockLedger` is the first line of the work, before any read.
+- Every write path that changes a user's orders takes it (send and cancel), including jobs. Read-only paths (the portfolio) skip the lock and read one snapshot with `uow.run(work, { isolation: 'repeatable-read', readOnly: true })`.
 - Load the aggregate **after** the lock is taken: an order read before the lock can be stale when the lock is granted.
-- The lock lives in the unit of work, not in a repository method and not in a second port.
+- The unit of work knows nothing about users or locks: it opens the transaction and sets the isolation. The lock is a repository method, `lockLedger(userId)`, because the use case asks the database for it like any other query (a query it asks for, not a decision, so it fits dumb repositories). It is not `searchOneAndLock`: there is no single row to lock, the ledger is the whole order history of the user. The one exception to the `save`/`search`/`find` prefix rule is `lockLedger`.
+- `now` is `new Date()` in the use case, after the lock.
 - A forgotten lock fails silently (unlike a missing row lock), so every write path has an e2e concurrency spec: parallel requests, exactly one outcome wins.
 
 ## DI Token: Symbol, not String
@@ -159,7 +158,7 @@ List every field explicitly in `toDomain` / `toPersistence` (no spread of the re
 
 ## Transactions: Unit of Work
 
-The application service owns the transaction (Vernon *IDDD* ch. 14). The ambient transaction comes from `@nestjs-cls/transactional`, hidden behind the `UNIT_OF_WORK` port (`UnitOfWork` in `@/shared/domain/ports`).
+The application service owns the transaction (Vernon *IDDD* ch. 14). The ambient transaction comes from `@nestjs-cls/transactional`, hidden behind the `UNIT_OF_WORK` port (`UnitOfWork` in `src/shared/application/unit-of-work.port.ts`; adapter `src/shared/infrastructure/transactions/cls-unit-of-work.ts`). Signature: `run<T>(work: () => Promise<T>, options?: UnitOfWorkOptions): Promise<T>`, with `options` holding the isolation.
 
 **Repository rules:**
 - Reads and writes both use the ambient transaction client from `TransactionHost`. Inside `uow.run` it is the transaction client; outside one it is the plain client and a write commits on its own, which is correct for a single-write use case.
@@ -187,17 +186,16 @@ New infrastructure goes in a module named after its responsibility. Do not add a
 
 ## Parameter Objects
 
-In every layer, a method or function with MORE THAN 1 parameter takes a single `params` object declared as a named interface (no inline object types). Always name a value before passing it: no inline `new Date()` or unexplained literals at the call site (Clean Code ch. 3, argument objects).
+In every layer, a method or function with MORE THAN 1 parameter takes a single `params` object declared as a named interface (no inline object types). Never pass an unexplained literal at the call site; name the value first. `now: new Date()` inside a params object is allowed (the app clock names itself); a bare positional `new Date()` is not (Clean Code ch. 3, argument objects).
 
 ```typescript
-// Bad: two numbers swappable; inline Date
+// Bad: two numbers swappable; positional Date
 order.fill(price, new Date());
-this.decideOrder.run(input, summary, price, new Date());
+Order.place(userId, input, price, new Date());
 
-// Good: params interface; value named first
-const now = new Date();
-order.fill({ price, now });
-this.decideOrder.run({ input, summary, price, now });
+// Good: params object; `now` is named by its key
+order.fill({ price, now: new Date() });
+Order.place({ userId, input, marketPrice, availableCash, availableShares, now: new Date() });
 ```
 
 A concept with its own invariants (e.g. a price) is a value object with a `create()` that validates, never an interface plus a separate assert function (Evans, DDD ch. 5). Lint rejects a service or use-case method with more than one parameter.

@@ -51,6 +51,7 @@ src/{module}/
 │   │   └── {entity}-persistence.mapper.ts
 │   └── http/
 │       ├── {module}.controller.ts
+│       ├── {entity}.presenter.ts   # only when the wire shape differs from toPrimitives()
 │       └── {verb}-{entity}.dto.ts
 └── {module}.module.ts
 ```
@@ -93,13 +94,13 @@ export class {Module}Controller {
 }
 ```
 
-Controllers inject use cases directly, no facade in between. A controller validates the DTO, calls one use case and shapes the JSON: no repository, no domain service, no `try/catch`. Handler methods whose parameters are all Nest decorators (`@Body()`, `@Param()`, `@Headers()`) are exempt from the params-object rule.
+Controllers inject use cases directly, no facade in between. A controller validates the DTO, calls one use case, then a presenter when the wire shape differs from `toPrimitives()`: no repository, no domain service, no math, no `try/catch`. Handler methods whose parameters are all Nest decorators (`@Body()`, `@Param()`, `@Headers()`) are exempt from the params-object rule.
 
 ## Controller Response Shape
 
-Return `entity.toPrimitives()` directly where the entity is the wire shape; for lists, `entities.map((e) => e.toPrimitives())`. When an endpoint needs a different shape (the portfolio, the order response with money rounded), build it inline in the controller or a small presenter in `infrastructure/http/`; do not invent a parallel response class per entity.
+Return `entity.toPrimitives()` directly only where the entity has no money fields and is the wire shape; for lists, `entities.map((e) => e.toPrimitives())`. When an endpoint needs a different shape (the portfolio, the order response with money rounded), build it in a presenter in `<module>/infrastructure/http/` that the controller calls after the use case; do not invent a parallel response class per entity.
 
-- **Money leaves as a string rounded once there**, `ROUND_HALF_UP` to 2 decimals. Never a `number`.
+- **Money leaves as a string, rounded once in the presenter.** Domain services return full-precision `Decimal`; `MONEY_SCALE = 2` (ARS minor unit) lives in the domain. The presenter calls the shared `toDecimalString` (`src/shared/infrastructure/http/to-decimal-string.ts`): `ROUND_HALF_UP` at `MONEY_SCALE`, never `-0.00`. No global interceptor or serializer. Never a `number`.
 - `Date` fields go over the wire as the ISO string `JSON.stringify` produces.
 - Errors come from domain exceptions through the global filter; the controller never catches.
 - Wrap collections in an object (`{ "instruments": [...] }`) so a field can be added later without breaking clients.

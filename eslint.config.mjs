@@ -46,7 +46,7 @@ const NO_TRANSACTION = {
 
 const REPOSITORY = 'TSInterfaceDeclaration[id.name=/Repository$/]';
 const PORT_METHOD_PREFIX = {
-  selector: `${REPOSITORY} :matches(TSMethodSignature, TSPropertySignature[typeAnnotation.typeAnnotation.type='TSFunctionType']):not([key.name=/^(save|search|find)/])`,
+  selector: `${REPOSITORY} :matches(TSMethodSignature, TSPropertySignature[typeAnnotation.typeAnnotation.type='TSFunctionType']):not([key.name=/^(save|search|find)/]):not([key.name='lockLedger'])`,
   message:
     'port-method-name: a repository port method starts with save, search or find. search* may return null or an empty list, find* throws on a miss. No delete.',
 };
