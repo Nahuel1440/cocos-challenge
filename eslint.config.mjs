@@ -43,7 +43,6 @@ const PORT_METHOD_PREFIX = {
   message:
     'port-method-name: a repository port method starts with save, search or find. search* may return null or an empty list, find* throws on a miss. No delete.',
 };
-const EXCEPTION_CLASS = 'ClassDeclaration[superClass.name=/Exception$/]';
 // Signature rules: no destructuring in the signature, no inline object types. Arrows passed straight
 // to a call or `new` (.map(({ x }) => ...)) are exempt.
 const SIGNATURE_OWNER =
