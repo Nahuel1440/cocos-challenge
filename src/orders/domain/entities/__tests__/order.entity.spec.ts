@@ -63,6 +63,30 @@ describe('place', () => {
     expect(order.toPrimitives().price).toBe('930.55');
   });
 
+  it('should serialize the price with 2 decimals when it has no decimal part', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 1,
+    });
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: new Decimal('1000'),
+      availableShares: 0,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.toPrimitives().price).toBe('100.00');
+  });
+
   it('should fill a MARKET BUY at the market price when cash covers it', () => {
     // Arrange
     const MARKET_PRICE = new Decimal('100.00');
@@ -88,7 +112,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('FILLED');
     expect(order.getRejectionReason()).toBeNull();
-    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('100.00');
     expect(order.toPrimitives().size).toBe(5);
   });
 
@@ -117,7 +141,7 @@ describe('place', () => {
 
     // Assert
     expect(order.getStatus()).toBe('NEW');
-    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('90.00');
   });
 
   it('should ignore the market price when the order is a LIMIT', () => {
@@ -147,7 +171,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('NEW');
     expect(order.getRejectionReason()).toBeNull();
-    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('90.00');
   });
 
   it('should accept a BUY when its cost equals the available cash', () => {
@@ -203,7 +227,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('NEW');
     expect(order.getRejectionReason()).toBeNull();
-    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('120.00');
     expect(order.toPrimitives().size).toBe(4);
   });
 
@@ -232,7 +256,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('REJECTED');
     expect(order.getRejectionReason()).toBe('INSUFFICIENT_FUNDS');
-    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('100.00');
     expect(order.toPrimitives().size).toBe(11);
   });
 
@@ -261,7 +285,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('FILLED');
     expect(order.getRejectionReason()).toBeNull();
-    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('100.00');
     expect(order.toPrimitives().size).toBe(4);
   });
 
@@ -317,7 +341,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('REJECTED');
     expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
-    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('100.00');
     expect(order.toPrimitives().size).toBe(11);
   });
 
@@ -541,7 +565,7 @@ describe('place', () => {
     expect(order.getStatus()).toBe('REJECTED');
     expect(order.getRejectionReason()).toBe('AMOUNT_BELOW_ONE_SHARE');
     expect(order.toPrimitives().size).toBe(0);
-    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('930.00');
   });
 
   it('should check cash against the size computed from the amount', () => {
@@ -654,7 +678,7 @@ describe('place', () => {
 
     // Assert
     expect(order.getStatus()).toBe('NEW');
-    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('500.00');
     expect(order.toPrimitives().size).toBe(20);
   });
 
@@ -683,7 +707,7 @@ describe('place', () => {
     // Assert
     expect(order.getStatus()).toBe('REJECTED');
     expect(order.getRejectionReason()).toBe('INSUFFICIENT_FUNDS');
-    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+    expect(order.toPrimitives().price).toBe('100.00');
     expect(order.toPrimitives().size).toBe(10);
   });
 

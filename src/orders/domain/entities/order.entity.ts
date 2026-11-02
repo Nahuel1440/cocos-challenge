@@ -200,7 +200,10 @@ export class Order {
       side: this.side,
       type: this.type,
       size: this.size,
-      price: this.price === null ? null : this.price.toFixed(),
+      price:
+        this.price === null
+          ? null
+          : this.price.toFixed(2, Decimal.ROUND_HALF_UP),
       status: this.status,
       rejectionReason: this.rejectionReason,
       datetime: this.datetime,
