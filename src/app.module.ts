@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { InstrumentsModule } from '@/instruments/instruments.module';
 import { OrdersModule } from '@/orders/orders.module';
+import { PortfolioModule } from '@/portfolio/portfolio.module';
 import { PrismaModule } from '@/shared/infrastructure/prisma/prisma.module';
 import { TransactionsModule } from '@/shared/infrastructure/transactions/transactions.module';
 import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
@@ -18,7 +19,11 @@ const env = process.env.NODE_ENV;
     TransactionsModule,
     UsersModule,
     OrdersModule,
+<<<<<<< HEAD
     InstrumentsModule,
+=======
+    PortfolioModule,
+>>>>>>> origin/feat/t8-portfolio
     LoggerModule.forRoot({
       pinoHttp: {
         // D-40: our own id per request; an incoming X-Request-Id is ignored.
