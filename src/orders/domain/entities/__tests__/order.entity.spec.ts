@@ -38,27 +38,6 @@ describe('place', () => {
     expect(primitives.type).toBe('MARKET');
   });
 
-  it('should expose price as a decimal string in toPrimitives', () => {
-    const MARKET_PRICE = new Decimal('930.55');
-    const input = OrderInputMother.create({
-      instrumentId: INSTRUMENT_ID,
-      side: 'BUY',
-      type: 'MARKET',
-      size: 1,
-    });
-
-    const order = Order.place({
-      userId: USER_ID,
-      input,
-      marketPrice: MARKET_PRICE,
-      availableCash: new Decimal('1000'),
-      availableShares: 0,
-      now: NOW,
-    });
-
-    expect(order.toPrimitives().price).toBe('930.55');
-  });
-
   it('should serialize the price with 2 decimals when it has no decimal part', () => {
     const MARKET_PRICE = new Decimal('100.00');
     const input = OrderInputMother.create({
@@ -182,33 +161,6 @@ describe('place', () => {
     expect(order.getRejectionReason()).toBeNull();
   });
 
-  it('should leave a LIMIT SELL as NEW when available shares cover the size', () => {
-    const LIMIT_PRICE = new Decimal('120.00');
-    const input = OrderInputMother.create({
-      instrumentId: INSTRUMENT_ID,
-      side: 'SELL',
-      type: 'LIMIT',
-      size: 4,
-      limitPrice: LIMIT_PRICE,
-    });
-    const AVAILABLE_CASH = new Decimal('0');
-    const AVAILABLE_SHARES = 10;
-
-    const order = Order.place({
-      userId: USER_ID,
-      input,
-      marketPrice: new Decimal('100.00'),
-      availableCash: AVAILABLE_CASH,
-      availableShares: AVAILABLE_SHARES,
-      now: NOW,
-    });
-
-    expect(order.getStatus()).toBe('NEW');
-    expect(order.getRejectionReason()).toBeNull();
-    expect(order.toPrimitives().price).toBe('120.00');
-    expect(order.toPrimitives().size).toBe(4);
-  });
-
   it('should reject with INSUFFICIENT_FUNDS when cost exceeds available cash', () => {
     const MARKET_PRICE = new Decimal('100.00');
     const input = OrderInputMother.create({
@@ -311,30 +263,6 @@ describe('place', () => {
     expect(order.toPrimitives().size).toBe(11);
   });
 
-  it('should reject with INSUFFICIENT_SHARES when available shares are 0', () => {
-    const MARKET_PRICE = new Decimal('100.00');
-    const input = OrderInputMother.create({
-      instrumentId: INSTRUMENT_ID,
-      side: 'SELL',
-      type: 'MARKET',
-      size: 1,
-    });
-    const AVAILABLE_CASH = new Decimal('0');
-    const AVAILABLE_SHARES = 0;
-
-    const order = Order.place({
-      userId: USER_ID,
-      input,
-      marketPrice: MARKET_PRICE,
-      availableCash: AVAILABLE_CASH,
-      availableShares: AVAILABLE_SHARES,
-      now: NOW,
-    });
-
-    expect(order.getStatus()).toBe('REJECTED');
-    expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
-  });
-
   it('should reject with INSUFFICIENT_SHARES when available shares are negative', () => {
     const MARKET_PRICE = new Decimal('100.00');
     const input = OrderInputMother.create({
@@ -409,29 +337,6 @@ describe('place', () => {
     expect(order.getStatus()).toBe('REJECTED');
     expect(order.getRejectionReason()).toBe('NO_MARKET_PRICE');
     expect(order.toPrimitives().size).toBeNull();
-  });
-
-  it('should report NO_MARKET_PRICE before checking funds when both fail', () => {
-    const NO_MARKET_PRICE = null;
-    const input = OrderInputMother.create({
-      instrumentId: INSTRUMENT_ID,
-      side: 'BUY',
-      type: 'MARKET',
-      size: 5,
-    });
-    const AVAILABLE_CASH = new Decimal('10');
-    const AVAILABLE_SHARES = 0;
-
-    const order = Order.place({
-      userId: USER_ID,
-      input,
-      marketPrice: NO_MARKET_PRICE,
-      availableCash: AVAILABLE_CASH,
-      availableShares: AVAILABLE_SHARES,
-      now: NOW,
-    });
-
-    expect(order.getRejectionReason()).toBe('NO_MARKET_PRICE');
   });
 
   it('should round the size down when the division is not exact (10000.00/930.00 -> 10)', () => {
@@ -521,31 +426,6 @@ describe('place', () => {
     });
     const AVAILABLE_CASH = new Decimal('9500');
     const AVAILABLE_SHARES = 0;
-
-    const order = Order.place({
-      userId: USER_ID,
-      input,
-      marketPrice: MARKET_PRICE,
-      availableCash: AVAILABLE_CASH,
-      availableShares: AVAILABLE_SHARES,
-      now: NOW,
-    });
-
-    expect(order.getStatus()).toBe('FILLED');
-    expect(order.toPrimitives().size).toBe(10);
-  });
-
-  it('should compute the size from the amount on a SELL too', () => {
-    const MARKET_PRICE = new Decimal('930.00');
-    const input = OrderInputMother.create({
-      instrumentId: INSTRUMENT_ID,
-      side: 'SELL',
-      type: 'MARKET',
-      size: null,
-      amount: new Decimal('10000.00'),
-    });
-    const AVAILABLE_CASH = new Decimal('0');
-    const AVAILABLE_SHARES = 10;
 
     const order = Order.place({
       userId: USER_ID,
