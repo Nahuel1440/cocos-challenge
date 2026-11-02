@@ -54,6 +54,23 @@ interface OrderProps {
   datetime: Date;
 }
 
+interface StatusForParams {
+  input: OrderInput;
+  rejection: RejectionReason | null;
+}
+
+interface FindRejectionParams {
+  params: PlaceOrderParams;
+  price: Decimal | null;
+  size: number | null;
+}
+
+interface CashCheckParams {
+  placeParams: PlaceOrderParams;
+  price: Decimal;
+  size: number;
+}
+
 export class Order {
   private readonly id: number | null;
   private readonly userId: number;
@@ -95,6 +112,8 @@ export class Order {
   public static place(params: PlaceOrderParams): Order {
     const { userId, input, marketPrice, now } = params;
     const price = input.type === 'LIMIT' ? input.limitPrice : marketPrice;
+    const size = input.size;
+    const rejection = Order.findRejection({ params, price, size });
 
     return new Order({
       id: null,
@@ -102,12 +121,46 @@ export class Order {
       instrumentId: input.instrumentId,
       side: input.side,
       type: input.type,
-      size: input.size,
+      size,
       price,
-      status: input.type === 'LIMIT' ? 'NEW' : 'FILLED',
-      rejectionReason: null,
+      status: Order.statusFor({ input, rejection }),
+      rejectionReason: rejection,
       datetime: now,
     });
+  }
+
+  private static statusFor(params: StatusForParams): OrderStatus {
+    const { input, rejection } = params;
+
+    if (rejection !== null) return 'REJECTED';
+
+    return input.type === 'LIMIT' ? 'NEW' : 'FILLED';
+  }
+
+  private static findRejection(
+    params: FindRejectionParams,
+  ): RejectionReason | null {
+    const { params: placeParams, price, size } = params;
+    const { input } = placeParams;
+
+    if (price === null || size === null) return null;
+    if (
+      input.side === 'BUY' &&
+      Order.exceedsAvailableCash({ placeParams, price, size })
+    ) {
+      return 'INSUFFICIENT_FUNDS';
+    }
+    if (input.side === 'SELL' && size > placeParams.availableShares) {
+      return 'INSUFFICIENT_SHARES';
+    }
+
+    return null;
+  }
+
+  private static exceedsAvailableCash(params: CashCheckParams): boolean {
+    const { placeParams, price, size } = params;
+
+    return price.times(size).greaterThan(placeParams.availableCash);
   }
 
   public toPrimitives(): OrderPrimitives {

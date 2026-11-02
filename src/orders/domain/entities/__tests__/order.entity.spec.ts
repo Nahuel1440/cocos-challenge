@@ -206,4 +206,172 @@ describe('place', () => {
     expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
     expect(order.toPrimitives().size).toBe(4);
   });
+
+  it('should reject with INSUFFICIENT_FUNDS when cost exceeds available cash', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 11,
+    });
+    const AVAILABLE_CASH = new Decimal('1000');
+    const AVAILABLE_SHARES = 0;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('INSUFFICIENT_FUNDS');
+    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().size).toBe(11);
+  });
+
+  it('should fill a MARKET SELL when available shares cover the size', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 4,
+    });
+    const AVAILABLE_CASH = new Decimal('0');
+    const AVAILABLE_SHARES = 10;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('FILLED');
+    expect(order.getRejectionReason()).toBeNull();
+    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().size).toBe(4);
+  });
+
+  it('should accept a SELL when its size equals the available shares', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 10,
+    });
+    const AVAILABLE_CASH = new Decimal('0');
+    const AVAILABLE_SHARES = 10;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('FILLED');
+    expect(order.getRejectionReason()).toBeNull();
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when size exceeds the available shares', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 11,
+    });
+    const AVAILABLE_CASH = new Decimal('0');
+    const AVAILABLE_SHARES = 10;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
+    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().size).toBe(11);
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when available shares are 0', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 1,
+    });
+    const AVAILABLE_CASH = new Decimal('0');
+    const AVAILABLE_SHARES = 0;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
+  });
+
+  it('should reject with INSUFFICIENT_SHARES when available shares are negative', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'MARKET',
+      size: 1,
+    });
+    const AVAILABLE_CASH = new Decimal('0');
+    const AVAILABLE_SHARES = -3;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('REJECTED');
+    expect(order.getRejectionReason()).toBe('INSUFFICIENT_SHARES');
+  });
 });
