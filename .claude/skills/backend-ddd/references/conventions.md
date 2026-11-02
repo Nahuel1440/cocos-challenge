@@ -82,7 +82,7 @@ return this.uow.run(async () => {
 Rules:
 
 - The lock runs only inside a transaction: `uow.run` opens it, the repository never does. `lockLedger` is the first line of the work, before any read.
-- Every write path that changes a user's orders takes it (send and cancel), including jobs. Read-only paths (the portfolio) skip the lock and read one snapshot with `uow.run(work, { isolation: 'RepeatableRead', readOnly: true })`.
+- Every write path that changes a user's orders takes it (send and cancel), including jobs. Read-only paths (the portfolio) skip the lock and read one snapshot with `uow.run(work, { isolation: 'repeatable-read', readOnly: true })`.
 - Load the aggregate **after** the lock is taken: an order read before the lock can be stale when the lock is granted.
 - The unit of work knows nothing about users or locks: it opens the transaction and sets the isolation. The lock is a repository method, `lockLedger(userId)`, because the use case asks the database for it like any other query (a query it asks for, not a decision, so it fits dumb repositories). It is not `searchOneAndLock`: there is no single row to lock, the ledger is the whole order history of the user. The one exception to the `save`/`search`/`find` prefix rule is `lockLedger`.
 - `now` is `new Date()` in the use case, after the lock.
@@ -186,17 +186,16 @@ New infrastructure goes in a module named after its responsibility. Do not add a
 
 ## Parameter Objects
 
-In every layer, a method or function with MORE THAN 1 parameter takes a single `params` object declared as a named interface (no inline object types). Always name a value before passing it: no inline `new Date()` or unexplained literals at the call site (Clean Code ch. 3, argument objects).
+In every layer, a method or function with MORE THAN 1 parameter takes a single `params` object declared as a named interface (no inline object types). Never pass an unexplained literal at the call site; name the value first. `now: new Date()` inside a params object is allowed (the app clock names itself); a bare positional `new Date()` is not (Clean Code ch. 3, argument objects).
 
 ```typescript
-// Bad: two numbers swappable; inline Date
+// Bad: two numbers swappable; positional Date
 order.fill(price, new Date());
 Order.place(userId, input, price, new Date());
 
-// Good: params interface; value named first
-const now = new Date();
-order.fill({ price, now });
-Order.place({ userId, input, marketPrice, availableCash, availableShares, now });
+// Good: params object; `now` is named by its key
+order.fill({ price, now: new Date() });
+Order.place({ userId, input, marketPrice, availableCash, availableShares, now: new Date() });
 ```
 
 A concept with its own invariants (e.g. a price) is a value object with a `create()` that validates, never an interface plus a separate assert function (Evans, DDD ch. 5). Lint rejects a service or use-case method with more than one parameter.

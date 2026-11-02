@@ -125,7 +125,7 @@ describe('run', () => {
 })
 ```
 
-- Name the variable under test descriptively (`useCase`, `summarizeLedger`, `decideOrder`) — avoid generic `sut`
+- Name the variable under test descriptively (`useCase`, `summarizeLedger`, `placeOrder`) — avoid generic `sut`
 - Mocks and service instantiated at **module level**, reset with `vi.resetAllMocks()` in `beforeEach`
 - One `describe` per method being tested
 - **Named constants** for expected values (`AVAILABLE_CASH`) — referenced in both arrange and assert for clarity

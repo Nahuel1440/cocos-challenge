@@ -95,7 +95,7 @@ return this.uow.run(async () => {
 });
 ```
 
-- Take the lock for every write path that changes a user's orders: `await this.orders.lockLedger(userId);` is the first line of the work, before any read. A read-only use case runs `uow.run(work, { isolation: 'RepeatableRead', readOnly: true })` for one snapshot, with no lock.
+- Take the lock for every write path that changes a user's orders: `await this.orders.lockLedger(userId);` is the first line of the work, before any read. A read-only use case runs `uow.run(work, { isolation: 'repeatable-read', readOnly: true })` for one snapshot, with no lock.
 - A single-write use case with no lock calls `repo.save` directly.
 - Logging and other side effects that must not roll back go after `run` returns.
 - A job that processes many users runs one `uow.run` per user, so one failure does not roll back the others.
