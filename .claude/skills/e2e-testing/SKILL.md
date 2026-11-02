@@ -3,7 +3,7 @@ name: e2e-testing
 description: "Writes Vitest + supertest tests for the Cocos API over HTTP against a real Postgres (Testcontainers) with the seed. MUST be used when writing or editing `test/**/*.e2e-spec.ts`, or when the user says 'e2e test' or 'test this endpoint'. Do NOT use for pure domain logic (unit-testing skill)."
 ---
 
-Tests go over HTTP (`supertest`) on a Testcontainers Postgres. Run with `npm run test:e2e` (Docker required). Harness in `test/support/`: `postgres-global-setup.ts` starts the container and applies migrations; call `truncateAllTables()` and `reloadSeed()` in `beforeEach`.
+Tests go over HTTP (`supertest`) on a Testcontainers Postgres. Run with `npm run test:e2e` (Docker required). Database or unit-of-work tests with no HTTP go in `test/**/*.int-spec.ts` on the same Postgres. Harness in `test/support/`: `postgres-global-setup.ts` starts the container and applies migrations; call `truncateAllTables()` and `reloadSeed()` in `beforeEach`.
 
 Boot the real `AppModule` with the same global pipes and filters as `main.ts`; without them validation and error mapping vanish and 400s become 500s. If no app-boot helper or `supertest` exists yet, STOP and tell the user.
 
