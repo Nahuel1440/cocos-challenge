@@ -5,5 +5,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [swc.vite()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
-  test: { include: ['test/**/*.e2e-spec.ts'], passWithNoTests: true },
+  test: {
+    include: ['test/**/*.e2e-spec.ts'],
+    globalSetup: ['test/support/postgres-global-setup.ts'],
+    passWithNoTests: true,
+  },
 });
