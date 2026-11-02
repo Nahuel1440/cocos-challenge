@@ -13,7 +13,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "test", "*.config.ts", "*.config.mts"]
 }
