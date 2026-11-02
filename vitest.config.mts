@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [swc.vite()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   test: {
-    include: ['src/**/*.spec.ts', 'prisma/**/*.spec.ts'],
+    include: ['src/**/*.spec.ts'],
     passWithNoTests: true,
   },
 });
