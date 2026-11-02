@@ -60,15 +60,11 @@ interface StatusForParams {
 }
 
 interface FindRejectionParams {
-  params: PlaceOrderParams;
+  input: OrderInput;
   price: Decimal | null;
   size: number | null;
-}
-
-interface CashCheckParams {
-  placeParams: PlaceOrderParams;
-  price: Decimal;
-  size: number;
+  availableCash: Decimal;
+  availableShares: number;
 }
 
 interface ResolveSizeParams {
@@ -120,10 +116,17 @@ export class Order {
   }
 
   public static place(params: PlaceOrderParams): Order {
-    const { userId, input, marketPrice, now } = params;
+    const { userId, input, marketPrice, availableCash, availableShares, now } =
+      params;
     const price = input.type === 'LIMIT' ? input.limitPrice : marketPrice;
     const size = Order.resolveSize({ input, price });
-    const rejection = Order.findRejection({ params, price, size });
+    const rejection = Order.findRejection({
+      input,
+      price,
+      size,
+      availableCash,
+      availableShares,
+    });
 
     return new Order({
       id: null,
@@ -150,19 +153,15 @@ export class Order {
   private static findRejection(
     params: FindRejectionParams,
   ): RejectionReason | null {
-    const { params: placeParams, price, size } = params;
-    const { input } = placeParams;
+    const { input, price, size, availableCash, availableShares } = params;
 
-    if (price === null) return 'NO_MARKET_PRICE';
-    if (size === null) return null;
+    // size is null only when price is null: the order came with an amount
+    if (price === null || size === null) return 'NO_MARKET_PRICE';
     if (Order.buysNoShare({ input, size })) return 'AMOUNT_BELOW_ONE_SHARE';
-    if (
-      input.side === 'BUY' &&
-      Order.exceedsAvailableCash({ placeParams, price, size })
-    ) {
+    if (input.side === 'BUY' && price.times(size).greaterThan(availableCash)) {
       return 'INSUFFICIENT_FUNDS';
     }
-    if (input.side === 'SELL' && size > placeParams.availableShares) {
+    if (input.side === 'SELL' && size > availableShares) {
       return 'INSUFFICIENT_SHARES';
     }
 
@@ -183,12 +182,6 @@ export class Order {
     const cameWithAmount = input.amount !== null;
 
     return input.type === 'MARKET' && cameWithAmount && size === 0;
-  }
-
-  private static exceedsAvailableCash(params: CashCheckParams): boolean {
-    const { placeParams, price, size } = params;
-
-    return price.times(size).greaterThan(placeParams.availableCash);
   }
 
   public toPrimitives(): OrderPrimitives {
