@@ -118,7 +118,8 @@ export class Order {
   public static place(params: PlaceOrderParams): Order {
     const { userId, input, marketPrice, availableCash, availableShares, now } =
       params;
-    const price = input.type === 'LIMIT' ? input.limitPrice : marketPrice;
+    const price =
+      input.type === 'LIMIT' ? input.limitPrice : Order.usable(marketPrice);
     const size = Order.resolveSize({ input, price });
     const rejection = Order.findRejection({
       input,
@@ -166,6 +167,13 @@ export class Order {
     }
 
     return null;
+  }
+
+  // A market price of 0 or below is no price (D-21): the order is rejected, not filled at 0
+  private static usable(marketPrice: Decimal | null): Decimal | null {
+    if (marketPrice === null || marketPrice.lessThanOrEqualTo(0)) return null;
+
+    return marketPrice;
   }
 
   private static resolveSize(params: ResolveSizeParams): number | null {

@@ -765,4 +765,37 @@ describe('place', () => {
     expect(order.getRejectionReason()).toBe('AMOUNT_BELOW_ONE_SHARE');
     expect(order.toPrimitives().size).toBe(0);
   });
+
+  it.each([
+    { marketPrice: '0', size: 5, amount: null, expectedSize: 5 },
+    { marketPrice: '-1.00', size: null, amount: '100.00', expectedSize: null },
+  ])(
+    'should reject with NO_MARKET_PRICE when the market price is 0 or below',
+    ({ marketPrice, size, amount, expectedSize }) => {
+      // Arrange
+      const input = OrderInputMother.create({
+        instrumentId: INSTRUMENT_ID,
+        side: 'BUY',
+        type: 'MARKET',
+        size,
+        amount: amount === null ? null : new Decimal(amount),
+      });
+
+      // Act
+      const order = Order.place({
+        userId: USER_ID,
+        input,
+        marketPrice: new Decimal(marketPrice),
+        availableCash: new Decimal('1000'),
+        availableShares: 0,
+        now: NOW,
+      });
+
+      // Assert
+      expect(order.getStatus()).toBe('REJECTED');
+      expect(order.getRejectionReason()).toBe('NO_MARKET_PRICE');
+      expect(order.toPrimitives().price).toBeNull();
+      expect(order.toPrimitives().size).toBe(expectedSize);
+    },
+  );
 });
