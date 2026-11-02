@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { CancelOrderUseCase } from '@/orders/application/use-cases/cancel-order.use-case';
 import { SendOrderUseCase } from '@/orders/application/use-cases/send-order.use-case';
+import { IdempotencyKey } from '@/orders/infrastructure/http/idempotency-key.decorator';
+import { IdempotencyKeyPipe } from '@/orders/infrastructure/http/idempotency-key.pipe';
 import { OrderIdPipe } from '@/orders/infrastructure/http/order-id.pipe';
 import { SendOrderDto } from '@/orders/infrastructure/http/send-order.dto';
 
@@ -16,7 +18,8 @@ interface AuthenticatedRequest {
   userId: number;
 }
 
-interface LocationResponse {
+interface SendOrderResponse {
+  status(code: number): unknown;
   setHeader(name: string, value: string): void;
 }
 
@@ -31,9 +34,10 @@ export class OrdersController {
   public async create(
     @Body() dto: SendOrderDto,
     @Req() request: AuthenticatedRequest,
-    @Res({ passthrough: true }) response: LocationResponse,
+    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) response: SendOrderResponse,
   ) {
-    const order = await this.sendOrder.run({
+    const result = await this.sendOrder.run({
       userId: request.userId,
       instrumentId: dto.instrumentId,
       side: dto.side,
@@ -41,11 +45,16 @@ export class OrdersController {
       size: dto.size ?? null,
       amount: dto.amount ?? null,
       price: dto.price ?? null,
+      idempotencyKey: idempotencyKey ?? null,
     });
-    const primitives = order.toPrimitives();
-    response.setHeader('Location', `/orders/${primitives.id}`);
+    response.status(result.status);
+    response.setHeader('Location', `/orders/${result.orderId}`);
 
-    return primitives;
+    if (result.replayed) {
+      response.setHeader('Idempotent-Replayed', 'true');
+    }
+
+    return result.body;
   }
 
   @Post(':id/cancel')
