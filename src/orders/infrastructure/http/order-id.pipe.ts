@@ -8,8 +8,8 @@ const MAX_INT = 2147483647;
 const DIGITS = /^\d+$/;
 
 @Injectable()
-export class OrderIdPipe implements PipeTransform<string, number> {
-  public transform(value: string): number {
+export class OrderIdPipe implements PipeTransform<string, string> {
+  public transform(value: string): string {
     const id = Number(value);
 
     if (!DIGITS.test(value) || id < 1 || id > MAX_INT) {
@@ -18,6 +18,6 @@ export class OrderIdPipe implements PipeTransform<string, number> {
       );
     }
 
-    return id;
+    return value;
   }
 }

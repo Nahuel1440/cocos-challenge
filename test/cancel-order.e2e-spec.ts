@@ -50,6 +50,7 @@ describe('POST /orders/:id/cancel', () => {
     expect(response.status).toBe(200);
     expect(response.body.id).toBe(placed.body.id);
     expect(response.body.status).toBe('CANCELLED');
+    expect(response.body.cancelledAt).toEqual(expect.any(String));
   });
 
   it('should return 200 with the order unchanged when it is already CANCELLED', async () => {
@@ -95,7 +96,7 @@ describe('POST /orders/:id/cancel', () => {
   });
 
   it('should return 400 VALIDATION_ERROR when the order id is not an integer', async () => {
-    const BAD_IDS = ['abc', '1.5', '0', '2147483648'];
+    const BAD_IDS = ['abc', '1.5', '0', '2147483648', '1e0', '1.0', '0x1'];
 
     for (const id of BAD_IDS) {
       const response = await cancel(id);
