@@ -66,29 +66,47 @@ model MarketData {
 
 // Prisma has no CHECK: they live only in the cocos_schema migration.
 model Order {
-  id              Int              @id @default(autoincrement())
-  instrumentId    Int              @map("instrumentid")
-  userId          Int              @map("userid")
-  size            Int?
-  price           Decimal?         @db.Decimal(10, 2)
-  type            OrderType
-  side            OrderSide
-  status          OrderStatus
-  datetime        DateTime         @db.Timestamp(6)
-  rejectionReason RejectionReason? @map("rejection_reason")
-  cancelledAt     DateTime?        @map("cancelled_at") @db.Timestamp(6)
-  instrument      Instrument       @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user            User             @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                  Int                  @id @default(autoincrement())
+  instrumentId        Int                  @map("instrumentid")
+  userId              Int                  @map("userid")
+  size                Int?
+  price               Decimal?             @db.Decimal(10, 2)
+  type                OrderType
+  side                OrderSide
+  status              OrderStatus
+  datetime            DateTime             @db.Timestamp(6)
+  rejectionReason     RejectionReason?     @map("rejection_reason")
+  cancelledAt         DateTime?            @map("cancelled_at") @db.Timestamp(6)
+  instrument          Instrument           @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  idempotencyRequests IdempotencyRequest[]
 
   @@index([userId])
   @@map("orders")
 }
 
 model User {
-  id            Int     @id @default(autoincrement())
-  email         String  @db.VarChar(255)
-  accountNumber String  @map("accountnumber") @db.VarChar(20)
-  orders        Order[]
+  id                  Int                  @id @default(autoincrement())
+  email               String               @db.VarChar(255)
+  accountNumber       String               @map("accountnumber") @db.VarChar(20)
+  orders              Order[]
+  idempotencyRequests IdempotencyRequest[]
 
   @@map("users")
+}
+
+model IdempotencyRequest {
+  id             Int    @id @default(autoincrement())
+  userId         Int    @map("userid")
+  operation      String @db.VarChar(50)
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  requestHash    String @map("request_hash") @db.Char(64)
+  orderId        Int    @map("order_id")
+  responseStatus Int    @map("response_status")
+  responseBody   Json   @map("response_body")
+  user           User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  order          Order  @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, operation, idempotencyKey])
+  @@map("idempotency_requests")
 }
