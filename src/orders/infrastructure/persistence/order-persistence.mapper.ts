@@ -19,6 +19,7 @@ export class OrderPersistenceMapper {
       status: record.status,
       rejectionReason: record.rejectionReason,
       datetime: record.datetime,
+      cancelledAt: record.cancelledAt,
     });
   }
 
@@ -35,6 +36,7 @@ export class OrderPersistenceMapper {
       status: data.status,
       rejectionReason: data.rejectionReason,
       datetime: data.datetime,
+      cancelledAt: data.cancelledAt,
     };
   }
 
