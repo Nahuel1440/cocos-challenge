@@ -17,6 +17,15 @@ const PRISMA_ISOLATION: Record<
   serializable: Prisma.TransactionIsolationLevel.Serializable,
 };
 
+export class NestedUnitOfWorkOptionsError extends Error {
+  constructor() {
+    super(
+      'A nested UnitOfWork.run() joins the open transaction and cannot change its options',
+    );
+    this.name = NestedUnitOfWorkOptionsError.name;
+  }
+}
+
 @Injectable()
 export class ClsUnitOfWork implements UnitOfWork {
   constructor(
@@ -27,6 +36,13 @@ export class ClsUnitOfWork implements UnitOfWork {
     work: () => Promise<T>,
     options?: UnitOfWorkOptions,
   ): Promise<T> {
+    if (this.txHost.isTransactionActive()) {
+      // A nested run joins the open transaction; options cannot change it afterwards.
+      return options
+        ? Promise.reject(new NestedUnitOfWorkOptionsError())
+        : work();
+    }
+
     return this.txHost.withTransaction(
       {
         isolationLevel:
