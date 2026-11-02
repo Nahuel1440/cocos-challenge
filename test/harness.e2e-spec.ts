@@ -1,8 +1,7 @@
-import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AppModule } from '@/app.module';
 import { PrismaService } from '@/shared/infrastructure/prisma/prisma.service';
+import { createTestApp } from './support/create-test-app';
 import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
 
@@ -11,11 +10,7 @@ describe('Test harness (e2e)', () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    await app.init();
+    app = await createTestApp();
     prisma = app.get(PrismaService);
   });
 
