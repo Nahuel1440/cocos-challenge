@@ -22,12 +22,15 @@
     "db:generate": "prisma generate"
   },
   "dependencies": {
+    "@nestjs-cls/transactional": "4.0.2",
+    "@nestjs-cls/transactional-adapter-prisma": "2.0.2",
     "@nestjs/common": "^11.2.8",
     "@nestjs/core": "^11.2.8",
     "@nestjs/platform-express": "^11.2.8",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "decimal.js": "^10.6.0",
+    "nestjs-cls": "7.0.2",
     "nestjs-pino": "^5.3.1",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
