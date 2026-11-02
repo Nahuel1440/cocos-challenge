@@ -15,9 +15,9 @@ const INSTRUMENT_ID = 47;
 
 interface OrderBody {
   type: string;
-  size?: number;
-  amount?: string;
-  price?: string;
+  size?: number | null;
+  amount?: string | null;
+  price?: string | null;
   side?: string;
   instrumentId?: number;
 }
@@ -275,5 +275,67 @@ describe('POST /orders', () => {
       });
     const summary = app.get(SummarizeLedgerService).run(entries);
     expect(summary.availableCash.toString()).toBe(CASH_LEFT);
+  });
+
+  it('should return 400 VALIDATION_ERROR when size or amount is null', async () => {
+    const nullSize = await sendOrder({ type: 'MARKET', size: null });
+    const nullAmount = await sendOrder({ type: 'MARKET', amount: null });
+
+    expect(nullSize.status).toBe(400);
+    expect(nullSize.body.code).toBe('VALIDATION_ERROR');
+    expect(nullAmount.status).toBe(400);
+    expect(nullAmount.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('should return 400 VALIDATION_ERROR when a LIMIT price is null', async () => {
+    const response = await sendOrder({ type: 'LIMIT', size: 1, price: null });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('should return 400 VALIDATION_ERROR when the instrumentId is above 2147483647', async () => {
+    const response = await sendOrder({
+      type: 'MARKET',
+      size: 1,
+      instrumentId: 2147483648,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('should return 400 VALIDATION_ERROR when a MARKET order sends a price', async () => {
+    const response = await sendOrder({
+      type: 'MARKET',
+      size: 1,
+      price: '1.00',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('should return 201 NEW with a Location when a LIMIT BUY has enough cash', async () => {
+    const response = await sendOrder({
+      type: 'LIMIT',
+      size: 1,
+      price: '100.00',
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('NEW');
+    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+  });
+
+  it('should return 201 REJECTED with a Location when a MARKET BUY has too little cash', async () => {
+    const SIZE_ABOVE_CASH = 1000000;
+
+    const response = await sendOrder({ type: 'MARKET', size: SIZE_ABOVE_CASH });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('REJECTED');
+    expect(response.body.rejectionReason).toBe('INSUFFICIENT_FUNDS');
+    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
   });
 });

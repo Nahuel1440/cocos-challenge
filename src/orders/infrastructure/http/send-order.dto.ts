@@ -2,16 +2,17 @@ import Decimal from 'decimal.js';
 import {
   IsIn,
   IsInt,
-  IsOptional,
   Max,
   Min,
   Validate,
+  ValidateIf,
   ValidatorConstraint,
   type ValidationArguments,
   type ValidatorConstraintInterface,
 } from 'class-validator';
 import { MAX_ORDER_SIZE } from '@/orders/domain/entities/order.entity';
 
+const MAX_INT = 2147483647;
 const MONEY_FORMAT = /^\d+(\.\d{1,2})?$/;
 const MIN_MONEY = new Decimal('0.01');
 const MAX_MONEY = new Decimal('99999999.99');
@@ -73,8 +74,23 @@ class LimitAmountBuysAShare implements ValidatorConstraintInterface {
   }
 }
 
+@ValidatorConstraint({ name: 'marketHasNoPrice' })
+class MarketHasNoPrice implements ValidatorConstraintInterface {
+  public validate(_value: unknown, args: ValidationArguments): boolean {
+    const { type, price } = args.object as SendOrderDto;
+
+    return type !== 'MARKET' || price === undefined;
+  }
+
+  public defaultMessage(): string {
+    return 'a MARKET order takes no price';
+  }
+}
+
 export class SendOrderDto {
   @IsInt()
+  @Min(1)
+  @Max(MAX_INT)
   public instrumentId!: number;
 
   @IsIn(['BUY', 'SELL'])
@@ -83,20 +99,21 @@ export class SendOrderDto {
   @IsIn(['MARKET', 'LIMIT'])
   @Validate(SizeXorAmount)
   @Validate(LimitHasPrice)
+  @Validate(MarketHasNoPrice)
   @Validate(LimitAmountBuysAShare)
   public type!: 'MARKET' | 'LIMIT';
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsInt()
   @Min(1)
   @Max(MAX_ORDER_SIZE)
   public size?: number;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @Validate(Money)
   public amount?: string;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @Validate(Money)
   public price?: string;
 }
