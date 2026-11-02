@@ -11,8 +11,8 @@ import {
   type ValidatorConstraintInterface,
 } from 'class-validator';
 import { MAX_ORDER_SIZE } from '@/orders/domain/entities/order.entity';
+import { POSTGRES_INT_MAX } from '@/shared/infrastructure/http/postgres-int-max';
 
-const MAX_INT = 2147483647;
 const MONEY_FORMAT = /^\d+(\.\d{1,2})?$/;
 const MIN_MONEY = new Decimal('0.01');
 const MAX_MONEY = new Decimal('99999999.99');
@@ -90,7 +90,7 @@ class MarketHasNoPrice implements ValidatorConstraintInterface {
 export class SendOrderDto {
   @IsInt()
   @Min(1)
-  @Max(MAX_INT)
+  @Max(POSTGRES_INT_MAX)
   public instrumentId!: number;
 
   @IsIn(['BUY', 'SELL'])

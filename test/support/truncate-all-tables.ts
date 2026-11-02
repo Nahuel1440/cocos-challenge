@@ -1,7 +1,7 @@
 import { inject } from 'vitest';
 import { Client } from 'pg';
 
-// Empties every table of the public schema. seed_snapshot is left alone.
+// seed_snapshot is left alone.
 export async function truncateAllTables(): Promise<void> {
   const client = new Client({ connectionString: inject('databaseUrl') });
   await client.connect();

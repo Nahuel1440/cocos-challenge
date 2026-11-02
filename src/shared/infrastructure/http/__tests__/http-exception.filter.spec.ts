@@ -99,7 +99,7 @@ describe('HttpExceptionFilter', () => {
     });
   });
 
-  it('should render an HttpException with its own status and the D-29 body', () => {
+  it('should render an HttpException with its own status and the error body', () => {
     const { status, body } = render(new NotFoundException('Cannot GET /nope'));
 
     expect(status).toBe(404);

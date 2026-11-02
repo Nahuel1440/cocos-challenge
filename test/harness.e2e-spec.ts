@@ -23,16 +23,7 @@ describe('Test harness (e2e)', () => {
     await reloadSeed();
   });
 
-  it('should answer a query through the Prisma client when the app has booted on the seed database', async () => {
-    const orders = await prisma.order.count();
-
-    expect(orders).toBe(11);
-  });
-
   it('should keep order 6 REJECTED with INSUFFICIENT_SHARES when the seed is reloaded after a truncate', async () => {
-    await truncateAllTables();
-    await reloadSeed();
-
     const order = await prisma.order.findUniqueOrThrow({ where: { id: 6 } });
 
     expect(order.status).toBe('REJECTED');

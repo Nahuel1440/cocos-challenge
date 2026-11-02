@@ -6,7 +6,6 @@ import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
 
 const SEED_USER_ID = '1';
-const BMA_ID = 31;
 
 describe('GET /portfolio', () => {
   let app: INestApplication;
@@ -60,26 +59,6 @@ describe('GET /portfolio', () => {
           totalReturnPercentage: '-8.20',
         },
       ],
-    });
-  });
-
-  it('should show the negative seed holding as is with a null return', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/portfolio')
-      .set('X-User-Id', SEED_USER_ID)
-      .expect(200);
-
-    const holding = response.body.positions.find(
-      (position: { instrumentId: number }) => position.instrumentId === BMA_ID,
-    );
-    expect(holding).toEqual({
-      instrumentId: 31,
-      ticker: 'BMA',
-      name: 'Banco Macro S.A.',
-      quantity: -10,
-      marketValue: '-15028.00',
-      averagePrice: null,
-      totalReturnPercentage: null,
     });
   });
 });

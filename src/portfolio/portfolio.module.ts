@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { SummarizeLedgerService } from '@/orders/domain/services/summarize-ledger.service';
 import { OrdersModule } from '@/orders/orders.module';
 import { GetPortfolioUseCase } from '@/portfolio/application/use-cases/get-portfolio.use-case';
 import { INSTRUMENT_QUOTE_REPOSITORY } from '@/portfolio/domain/ports/instrument-quote.repository';
@@ -12,7 +11,6 @@ import { PrismaInstrumentQuoteRepository } from '@/portfolio/infrastructure/pers
   controllers: [PortfolioController],
   providers: [
     GetPortfolioUseCase,
-    SummarizeLedgerService,
     BuildPortfolioService,
     {
       provide: INSTRUMENT_QUOTE_REPOSITORY,

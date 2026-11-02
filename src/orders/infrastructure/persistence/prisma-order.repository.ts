@@ -13,7 +13,7 @@ import { assertTransactionActive } from '@/shared/infrastructure/transactions/as
 import type { PrismaTransactionHost } from '@/shared/infrastructure/transactions/prisma-transaction-host';
 
 // Namespace of the per-user advisory lock: the first key of pg_advisory_xact_lock(namespace, userId).
-export const LEDGER_LOCK_NAMESPACE = 1;
+const LEDGER_LOCK_NAMESPACE = 1;
 
 @Injectable()
 export class PrismaOrderRepository implements OrderRepository {
