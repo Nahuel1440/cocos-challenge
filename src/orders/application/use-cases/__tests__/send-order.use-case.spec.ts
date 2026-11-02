@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, type Mocked, vi } from 'vitest';
 import { SendOrderInputMother } from '@/orders/application/use-cases/__tests__/send-order-input.mother';
 import { SendOrderUseCase } from '@/orders/application/use-cases/send-order.use-case';
 import { OrderSizeTooLargeException } from '@/orders/domain/exceptions/order-size-too-large.exception';
+import type { InstrumentTypeRepository } from '@/orders/domain/ports/instrument-type.repository';
 import type { MarketDataRepository } from '@/orders/domain/ports/market-data.repository';
 import type { OrderRepository } from '@/orders/domain/ports/order.repository';
 import { LedgerEntryMother } from '@/orders/domain/services/__tests__/ledger-entry.mother';
@@ -21,16 +22,21 @@ const mockOrders: Mocked<OrderRepository> = {
 const mockMarketData: Mocked<MarketDataRepository> = {
   searchLatestClose: vi.fn(),
 };
+const mockInstrumentTypes: Mocked<InstrumentTypeRepository> = {
+  searchTypeById: vi.fn(),
+};
 const useCase = new SendOrderUseCase(
   passThroughUow,
   mockOrders,
   mockMarketData,
+  mockInstrumentTypes,
   new SummarizeLedgerService(),
 );
 
 beforeEach(() => {
   Logger.overrideLogger(false);
   vi.resetAllMocks();
+  mockInstrumentTypes.searchTypeById.mockResolvedValue('ACCIONES');
   mockOrders.save.mockImplementation(async (order) => order);
 });
 

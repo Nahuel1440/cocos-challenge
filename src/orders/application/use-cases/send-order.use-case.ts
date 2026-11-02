@@ -7,6 +7,11 @@ import {
   type OrderType,
 } from '@/orders/domain/entities/order.entity';
 import { OrderSizeTooLargeException } from '@/orders/domain/exceptions/order-size-too-large.exception';
+import { OrderInstrumentNotTradableException } from '@/orders/domain/exceptions/order-instrument-not-tradable.exception';
+import {
+  INSTRUMENT_TYPE_REPOSITORY,
+  type InstrumentTypeRepository,
+} from '@/orders/domain/ports/instrument-type.repository';
 import {
   MARKET_DATA_REPOSITORY,
   type MarketDataRepository,
@@ -40,11 +45,15 @@ export class SendOrderUseCase {
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(MARKET_DATA_REPOSITORY)
     private readonly marketData: MarketDataRepository,
+    @Inject(INSTRUMENT_TYPE_REPOSITORY)
+    private readonly instrumentTypes: InstrumentTypeRepository,
     private readonly summarizeLedger: SummarizeLedgerService,
   ) {}
 
   public async run(input: SendOrderInput): Promise<Order> {
     const { userId, instrumentId } = input;
+
+    await this.assertTradable(instrumentId);
 
     const order = await this.uow.run(async () => {
       await this.orders.lockLedger(userId);
@@ -80,6 +89,14 @@ export class SendOrderUseCase {
     this.logOutcome(order);
 
     return order;
+  }
+
+  private async assertTradable(instrumentId: number): Promise<void> {
+    const type = await this.instrumentTypes.searchTypeById(instrumentId);
+
+    if (type === null || type === 'MONEDA') {
+      throw new OrderInstrumentNotTradableException(instrumentId);
+    }
   }
 
   private assertSizeFits(order: Order): void {
