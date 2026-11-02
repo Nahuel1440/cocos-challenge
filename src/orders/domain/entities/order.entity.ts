@@ -143,7 +143,8 @@ export class Order {
     const { params: placeParams, price, size } = params;
     const { input } = placeParams;
 
-    if (price === null || size === null) return null;
+    if (price === null) return 'NO_MARKET_PRICE';
+    if (size === null) return null;
     if (
       input.side === 'BUY' &&
       Order.exceedsAvailableCash({ placeParams, price, size })
