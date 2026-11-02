@@ -1,7 +1,9 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import { OrderInputMother } from '@/orders/domain/entities/__tests__/order-input.mother';
+import { OrderMother } from '@/orders/domain/entities/__tests__/order.mother';
 import { Order } from '@/orders/domain/entities/order.entity';
+import { OrderNotCancellableException } from '@/orders/domain/exceptions/order-not-cancellable.exception';
 
 const INSTRUMENT_ID = 47;
 const USER_ID = 7;
@@ -931,4 +933,44 @@ describe('place', () => {
       expect(order.toPrimitives().size).toBe(expectedSize);
     },
   );
+});
+
+describe('cancel', () => {
+  it('should set CANCELLED and the cancelled date when a NEW order is cancelled', () => {
+    const CANCELLED_AT = new Date('2026-02-01T09:30:00.000Z');
+    const order = OrderMother.withStatus('NEW');
+
+    order.cancel(CANCELLED_AT);
+
+    const primitives = order.toPrimitives();
+    expect(primitives.status).toBe('CANCELLED');
+    expect(primitives.cancelledAt).toBe(CANCELLED_AT);
+  });
+
+  it('should leave an already CANCELLED order unchanged', () => {
+    const FIRST_CANCEL = new Date('2026-02-01T09:30:00.000Z');
+    const RETRY = new Date('2026-02-01T09:31:00.000Z');
+    const order = OrderMother.create({
+      status: 'CANCELLED',
+      cancelledAt: FIRST_CANCEL,
+    });
+
+    order.cancel(RETRY);
+
+    const primitives = order.toPrimitives();
+    expect(primitives.status).toBe('CANCELLED');
+    expect(primitives.cancelledAt).toBe(FIRST_CANCEL);
+  });
+
+  it('should reject the cancel when the order is FILLED', () => {
+    const order = OrderMother.withStatus('FILLED');
+
+    expect(() => order.cancel(NOW)).toThrow(OrderNotCancellableException);
+  });
+
+  it('should reject the cancel when the order is REJECTED', () => {
+    const order = OrderMother.withStatus('REJECTED');
+
+    expect(() => order.cancel(NOW)).toThrow(OrderNotCancellableException);
+  });
 });

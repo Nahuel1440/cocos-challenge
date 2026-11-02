@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { OrderNotCancellableException } from '@/orders/domain/exceptions/order-not-cancellable.exception';
 
 export const MAX_ORDER_SIZE = 2147483647;
 
@@ -40,6 +41,7 @@ export interface OrderPrimitives {
   status: OrderStatus;
   rejectionReason: RejectionReason | null;
   datetime: Date;
+  cancelledAt: Date | null;
 }
 
 interface OrderProps {
@@ -53,6 +55,7 @@ interface OrderProps {
   status: OrderStatus;
   rejectionReason: RejectionReason | null;
   datetime: Date;
+  cancelledAt: Date | null;
 }
 
 interface DeriveStatusParams {
@@ -86,9 +89,10 @@ export class Order {
   private readonly type: OrderType;
   private readonly size: number | null;
   private readonly price: Decimal | null;
-  private readonly status: OrderStatus;
+  private status: OrderStatus;
   private readonly rejectionReason: RejectionReason | null;
   private readonly datetime: Date;
+  private cancelledAt: Date | null;
 
   private constructor(props: OrderProps) {
     const {
@@ -102,6 +106,7 @@ export class Order {
       status,
       rejectionReason,
       datetime,
+      cancelledAt,
     } = props;
 
     this.id = id;
@@ -114,6 +119,7 @@ export class Order {
     this.status = status;
     this.rejectionReason = rejectionReason;
     this.datetime = datetime;
+    this.cancelledAt = cancelledAt;
   }
 
   public static place(params: PlaceOrderParams): Order {
@@ -143,6 +149,7 @@ export class Order {
       status: Order.deriveStatus({ input, rejection }),
       rejectionReason: rejection,
       datetime: now,
+      cancelledAt: null,
     });
   }
 
@@ -221,7 +228,22 @@ export class Order {
       status: this.status,
       rejectionReason: this.rejectionReason,
       datetime: this.datetime,
+      cancelledAt: this.cancelledAt,
     };
+  }
+
+  public cancel(now: Date): void {
+    if (this.status === 'CANCELLED') return;
+    this.assertNew();
+
+    this.status = 'CANCELLED';
+    this.cancelledAt = now;
+  }
+
+  private assertNew(): void {
+    if (this.status !== 'NEW') {
+      throw new OrderNotCancellableException(this.status);
+    }
   }
 
   public getStatus(): OrderStatus {

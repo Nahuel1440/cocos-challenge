@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CancelOrderUseCase } from '@/orders/application/use-cases/cancel-order.use-case';
 import { SendOrderUseCase } from '@/orders/application/use-cases/send-order.use-case';
 import { INSTRUMENT_TYPE_REPOSITORY } from '@/orders/domain/ports/instrument-type.repository';
 import { MARKET_DATA_REPOSITORY } from '@/orders/domain/ports/market-data.repository';
@@ -13,6 +14,7 @@ import { PrismaOrderRepository } from '@/orders/infrastructure/persistence/prism
   controllers: [OrdersController],
   providers: [
     SendOrderUseCase,
+    CancelOrderUseCase,
     SummarizeLedgerService,
     { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository },
     {

@@ -1,5 +1,15 @@
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
+import { CancelOrderUseCase } from '@/orders/application/use-cases/cancel-order.use-case';
 import { SendOrderUseCase } from '@/orders/application/use-cases/send-order.use-case';
+import { OrderIdPipe } from '@/orders/infrastructure/http/order-id.pipe';
 import { SendOrderDto } from '@/orders/infrastructure/http/send-order.dto';
 
 interface AuthenticatedRequest {
@@ -12,7 +22,10 @@ interface LocationResponse {
 
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly sendOrder: SendOrderUseCase) {}
+  constructor(
+    private readonly sendOrder: SendOrderUseCase,
+    private readonly cancelOrder: CancelOrderUseCase,
+  ) {}
 
   @Post()
   public async create(
@@ -33,5 +46,19 @@ export class OrdersController {
     response.setHeader('Location', `/orders/${primitives.id}`);
 
     return primitives;
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  public async cancel(
+    @Param('id', OrderIdPipe) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const order = await this.cancelOrder.run({
+      userId: request.userId,
+      orderId: Number(id),
+    });
+
+    return order.toPrimitives();
   }
 }
