@@ -1,5 +1,7 @@
 import Decimal from 'decimal.js';
 
+export const MAX_ORDER_SIZE = 2147483647;
+
 export type OrderSide = 'BUY' | 'SELL';
 export type OrderType = 'MARKET' | 'LIMIT';
 export type OrderStatus = 'NEW' | 'FILLED' | 'CANCELLED' | 'REJECTED';
@@ -141,6 +143,13 @@ export class Order {
       status: Order.deriveStatus({ input, rejection }),
       rejectionReason: rejection,
       datetime: now,
+    });
+  }
+
+  public static fromPrimitives(primitives: OrderPrimitives): Order {
+    return new Order({
+      ...primitives,
+      price: primitives.price === null ? null : new Decimal(primitives.price),
     });
   }
 
