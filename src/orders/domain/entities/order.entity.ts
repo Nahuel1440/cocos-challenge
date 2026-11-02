@@ -71,6 +71,16 @@ interface CashCheckParams {
   size: number;
 }
 
+interface ResolveSizeParams {
+  input: OrderInput;
+  price: Decimal | null;
+}
+
+interface BuysNoShareParams {
+  input: OrderInput;
+  size: number;
+}
+
 export class Order {
   private readonly id: number | null;
   private readonly userId: number;
@@ -112,7 +122,7 @@ export class Order {
   public static place(params: PlaceOrderParams): Order {
     const { userId, input, marketPrice, now } = params;
     const price = input.type === 'LIMIT' ? input.limitPrice : marketPrice;
-    const size = input.size;
+    const size = Order.resolveSize({ input, price });
     const rejection = Order.findRejection({ params, price, size });
 
     return new Order({
@@ -145,6 +155,7 @@ export class Order {
 
     if (price === null) return 'NO_MARKET_PRICE';
     if (size === null) return null;
+    if (Order.buysNoShare({ input, size })) return 'AMOUNT_BELOW_ONE_SHARE';
     if (
       input.side === 'BUY' &&
       Order.exceedsAvailableCash({ placeParams, price, size })
@@ -156,6 +167,22 @@ export class Order {
     }
 
     return null;
+  }
+
+  private static resolveSize(params: ResolveSizeParams): number | null {
+    const { input, price } = params;
+
+    if (input.size !== null) return input.size;
+    if (price === null) return null;
+
+    return (input.amount ?? new Decimal(0)).divToInt(price).toNumber();
+  }
+
+  private static buysNoShare(params: BuysNoShareParams): boolean {
+    const { input, size } = params;
+    const cameWithAmount = input.amount !== null;
+
+    return input.type === 'MARKET' && cameWithAmount && size === 0;
   }
 
   private static exceedsAvailableCash(params: CashCheckParams): boolean {
