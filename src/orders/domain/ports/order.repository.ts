@@ -1,3 +1,4 @@
+import type { Order } from '@/orders/domain/entities/order.entity';
 import type {
   LedgerEntry,
   LedgerStatus,
@@ -10,8 +11,15 @@ export interface SearchByUserParams {
   statuses: LedgerStatus[];
 }
 
+export interface FindByIdForUserParams {
+  orderId: number;
+  userId: number;
+}
+
 export interface OrderRepository {
   // Blocks until no other transaction holds this user's ledger lock; released at commit or rollback.
   lockLedger(userId: number): Promise<void>;
   searchByUser(params: SearchByUserParams): Promise<LedgerEntry[]>;
+  findByIdForUser(params: FindByIdForUserParams): Promise<Order>;
+  save(order: Order): Promise<Order>;
 }

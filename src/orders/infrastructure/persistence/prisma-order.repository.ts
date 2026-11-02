@@ -1,6 +1,9 @@
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { Inject, Injectable } from '@nestjs/common';
+import type { Order } from '@/orders/domain/entities/order.entity';
+import { OrderNotFoundException } from '@/orders/domain/exceptions/order-not-found.exception';
 import type {
+  FindByIdForUserParams,
   OrderRepository,
   SearchByUserParams,
 } from '@/orders/domain/ports/order.repository';
@@ -28,10 +31,35 @@ export class PrismaOrderRepository implements OrderRepository {
     params: SearchByUserParams,
   ): Promise<LedgerEntry[]> {
     const { userId, statuses } = params;
-    const rows = await this.txHost.tx.order.findMany({
+    const records = await this.txHost.tx.order.findMany({
       where: { userId, status: { in: statuses } },
     });
 
-    return rows.map((row) => OrderPersistenceMapper.toLedgerEntry(row));
+    return records.map((record) =>
+      OrderPersistenceMapper.toLedgerEntry(record),
+    );
+  }
+
+  public async findByIdForUser(params: FindByIdForUserParams): Promise<Order> {
+    const { orderId, userId } = params;
+    const record = await this.txHost.tx.order.findFirst({
+      where: { id: orderId, userId },
+    });
+    if (record === null) {
+      throw new OrderNotFoundException(orderId);
+    }
+
+    return OrderPersistenceMapper.toDomain(record);
+  }
+
+  public async save(order: Order): Promise<Order> {
+    const data = OrderPersistenceMapper.toPersistence(order);
+    const id = order.toPrimitives().id;
+    const record =
+      id === null
+        ? await this.txHost.tx.order.create({ data })
+        : await this.txHost.tx.order.update({ where: { id }, data });
+
+    return OrderPersistenceMapper.toDomain(record);
   }
 }
