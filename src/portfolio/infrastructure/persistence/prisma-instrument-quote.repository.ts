@@ -1,10 +1,10 @@
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { Inject, Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
 import type {
   InstrumentQuote,
   InstrumentQuoteRepository,
 } from '@/portfolio/domain/ports/instrument-quote.repository';
+import { InstrumentQuotePersistenceMapper } from '@/portfolio/infrastructure/persistence/instrument-quote-persistence.mapper';
 import type { PrismaTransactionHost } from '@/shared/infrastructure/transactions/prisma-transaction-host';
 
 @Injectable()
@@ -21,13 +21,8 @@ export class PrismaInstrumentQuoteRepository implements InstrumentQuoteRepositor
       include: { marketData: { orderBy: { date: 'desc' }, take: 1 } },
     });
 
-    return rows.map((row) => ({
-      instrumentId: row.id,
-      ticker: row.ticker,
-      name: row.name,
-      latestClose: row.marketData[0]
-        ? new Decimal(row.marketData[0].close.toString())
-        : null,
-    }));
+    return rows.map((row) =>
+      InstrumentQuotePersistenceMapper.toInstrumentQuote(row),
+    );
   }
 }

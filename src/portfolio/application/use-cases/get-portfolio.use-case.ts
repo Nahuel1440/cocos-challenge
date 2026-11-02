@@ -81,6 +81,7 @@ export class GetPortfolioUseCase {
         totalValue: portfolio.totalValue,
         availableCash: summary.availableCash,
         positions: portfolio.positions.map((position) => {
+          // Every held instrument id was sent to the quote query, and orders.instrumentid has a foreign key to instruments.
           const { ticker, name } = quoteById.get(position.instrumentId)!;
 
           return { ...position, ticker, name };

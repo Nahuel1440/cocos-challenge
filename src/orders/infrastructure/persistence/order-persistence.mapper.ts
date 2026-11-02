@@ -12,6 +12,7 @@ export class OrderPersistenceMapper {
       instrumentId: row.instrumentId,
       side: row.side,
       status: row.status as LedgerStatus,
+      // searchByUser reads only FILLED and NEW rows, and the orders_size_required and orders_price_required CHECKs allow null only on REJECTED.
       size: row.size!,
       price: new Decimal(row.price!.toString()),
       datetime: row.datetime,
