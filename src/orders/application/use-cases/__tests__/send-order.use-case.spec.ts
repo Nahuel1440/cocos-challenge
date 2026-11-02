@@ -17,6 +17,7 @@ const passThroughUow: UnitOfWork = { run: (work) => work() };
 const mockOrders: Mocked<OrderRepository> = {
   lockLedger: vi.fn(),
   searchByUser: vi.fn(),
+  findByIdForUser: vi.fn(),
   save: vi.fn(),
 };
 const mockMarketData: Mocked<MarketDataRepository> = {
