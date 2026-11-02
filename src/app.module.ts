@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { InstrumentsModule } from '@/instruments/instruments.module';
 import { OrdersModule } from '@/orders/orders.module';
 import { PortfolioModule } from '@/portfolio/portfolio.module';
 import { PrismaModule } from '@/shared/infrastructure/prisma/prisma.module';
@@ -18,6 +19,7 @@ const env = process.env.NODE_ENV;
     TransactionsModule,
     UsersModule,
     OrdersModule,
+    InstrumentsModule,
     PortfolioModule,
     LoggerModule.forRoot({
       pinoHttp: {
