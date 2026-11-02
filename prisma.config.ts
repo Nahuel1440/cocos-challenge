@@ -1,6 +1,9 @@
 import { defineConfig } from 'prisma/config';
 import { assertLocalDatabaseUrl } from './prisma/assert-local-database-url';
 
+// Read before .env is loaded: the override works from the shell only, never from a file.
+const allowRemote = process.env.ALLOW_REMOTE_DB;
+
 // Prisma 7 does not read .env on its own.
 try {
   process.loadEnvFile();
@@ -8,7 +11,10 @@ try {
   // no .env: DATABASE_URL must already be in the environment
 }
 
-assertLocalDatabaseUrl(process.env.DATABASE_URL, process.env.ALLOW_REMOTE_DB);
+// `prisma generate` (postinstall) never opens a connection, so it must not be blocked.
+if (!process.argv.includes('generate')) {
+  assertLocalDatabaseUrl(process.env.DATABASE_URL, allowRemote);
+}
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',

@@ -16,5 +16,5 @@
     "outDir": "./dist",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "test", "*.config.ts", "*.config.mts"]
+  "include": ["src", "test", "prisma", "*.config.ts", "*.config.mts"]
 }
