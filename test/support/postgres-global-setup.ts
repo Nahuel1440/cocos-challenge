@@ -59,12 +59,15 @@ export default async function setup(project: TestProject) {
 
   const databaseUrl = container.getConnectionUri();
   const client = new Client({ connectionString: databaseUrl });
-  await client.connect();
   try {
+    await client.connect();
     await applyMigrations(client, root);
     await snapshotSeed(client);
+  } catch (error) {
+    await container.stop();
+    throw error;
   } finally {
-    await client.end();
+    await client.end().catch(() => undefined);
   }
 
   project.provide('databaseUrl', databaseUrl);
