@@ -32,9 +32,9 @@ Do NOT use for tests (unit-testing, e2e-testing skills), for shared infrastructu
 ```
 src/<module>/
 ├── domain/
-│   ├── entities/        # Order: identity + state transitions
+│   ├── entities/        # Order: identity, state transitions, Order.place (send-order rules)
 │   ├── value-objects/   # only when a value has its own invariant (none today)
-│   ├── services/        # SummarizeLedgerService, DecideOrderService: the business rules
+│   ├── services/        # SummarizeLedgerService: rules over many orders
 │   ├── ports/           # OrderRepository interface + ORDER_REPOSITORY symbol
 │   └── exceptions/      # OrderNotFoundException
 ├── application/
@@ -60,7 +60,7 @@ Import with `@/` (lint blocks `..`). Across modules, import only `@/<other>/doma
 
 ## Rule 1: Business rules live in domain services
 
-A rule over several orders or several inputs is a domain service: a class in `domain/services/` named `{Verb}{Noun}Service` with exactly ONE public method, `run(params)`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has three: `SummarizeLedgerService` (cash, holdings, average price), `DecideOrderService` (`FILLED`, `NEW` or `REJECTED`), `BuildPortfolioService` (positions and returns). File names follow the class: `summarize-ledger.service.ts`.
+A rule over several orders or several inputs is a domain service: a class in `domain/services/` named `{Verb}{Noun}Service` with exactly ONE public method, `run(params)`. No exported free functions in `domain/`. A domain service is stateless, has an empty constructor, does no I/O and has no decorators. It takes what it needs as arguments; the use case chains services. Cocos has two: `SummarizeLedgerService` (cash, holdings, average price) and `BuildPortfolioService` (positions and returns). The send-order rules are not a service: they live in `Order.place(params)` on the entity, which takes plain values (`input`, `marketPrice`, `availableCash`, `availableShares`) and returns an `Order` already `FILLED`, `NEW` or `REJECTED`. File names follow the class: `summarize-ledger.service.ts`.
 
 ```typescript
 // src/orders/domain/services/summarize-ledger.service.ts
@@ -94,7 +94,7 @@ public cancel(now: Date): void {
 
 ## Rule 3: A rejection is a value, an error is an exception
 
-`REJECTED` is a stored order and a `201`: `DecideOrderService.run` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain`, declare a stable `code` and an `ErrorCategory`, and carry no HTTP status; the global exception filter in `src/shared/infrastructure/http` maps the category to the status and renders the error body. Never extend Nest's `HttpException` in `domain/`.
+`REJECTED` is a stored order and a `201`: `Order.place` returns it, never throws it. Throw only when the request fails. Domain exceptions extend `DomainException` from `@/shared/domain`, declare a stable `code` and an `ErrorCategory`, and carry no HTTP status; the global exception filter in `src/shared/infrastructure/http` maps the category to the status and renders the error body. Never extend Nest's `HttpException` in `domain/`.
 
 ```typescript
 // src/orders/domain/exceptions/order-not-found.exception.ts
@@ -155,7 +155,6 @@ export class SendOrderUseCase {
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(MARKET_DATA_REPOSITORY) private readonly marketData: MarketDataRepository,
     private readonly summarizeLedger: SummarizeLedgerService,
-    private readonly decideOrder: DecideOrderService,
   ) {}
 
   public run(input: SendOrderInput): Promise<Order> {
@@ -167,9 +166,12 @@ export class SendOrderUseCase {
         const entries = await this.orders.searchByUser({ userId, statuses: ['FILLED', 'NEW'] });
         const price = await this.marketData.searchLatestClose(instrumentId);
         const summary = this.summarizeLedger.run(entries);
-        const now = new Date();
-
-        const order = this.decideOrder.run({ input, summary, price, now });
+        const order = Order.place({
+          input,
+          marketPrice: price,
+          availableCash: summary.availableCash,
+          availableShares: summary.holdings.get(instrumentId)?.availableQuantity ?? 0,
+        });
 
         return this.orders.save(order);
       },
@@ -178,7 +180,7 @@ export class SendOrderUseCase {
 }
 ```
 
-Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, DecideOrderService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, SummarizeLedgerService]` so `portfolio` can read the ledger.
+Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, { provide: ORDER_REPOSITORY, useClass: PrismaOrderRepository }]`, `exports: [ORDER_REPOSITORY, SummarizeLedgerService]` so `portfolio` can read the ledger.
 
 ## Rule 7: Members, parameters and style
 
@@ -190,13 +192,13 @@ Wiring: `providers: [SendOrderUseCase, SummarizeLedgerService, DecideOrderServic
 
 ```typescript
 // Bad: destructured in the signature, inline object type, positional id next to the object
-public run({ input, summary }: { input: SendOrderInput; summary: LedgerSummary }, price: Decimal): Order { ... }
+public static place({ input, marketPrice }: { input: SendOrderInput; marketPrice: Decimal }, availableCash: Decimal): Order { ... }
 
 // Good: named interface, destructured on the first line
-public run(params: DecideOrderParams): Order {
-  const { input, summary, price, now } = params;
+public static place(params: PlaceOrderParams): Order {
+  const { input, marketPrice, availableCash, availableShares } = params;
 
-  return this.applyRules({ input, summary, price, now });
+  return Order.decide({ input, marketPrice, availableCash, availableShares });
 }
 ```
 

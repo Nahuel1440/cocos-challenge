@@ -71,7 +71,7 @@ export class CancelOrderUseCase {
 | Get the portfolio | `GetPortfolioUseCase` |
 | Search instruments | `SearchInstrumentsUseCase` |
 
-Domain services are named the same way with `Service` (`DecideOrderService`) and live in `domain/services/`.
+Domain services are named the same way with `Service` (`SummarizeLedgerService`) and live in `domain/services/`.
 
 ## Transactions
 
@@ -145,7 +145,7 @@ A use case may read from one module and write to another when the operation has 
 
 Strict TDD; see the unit-testing skill for the full method. The points specific to use cases:
 
-- Instantiate the use case manually with mocked ports and **real** domain services: `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())`.
+- Instantiate the use case manually with mocked ports and **real** domain services: `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService())` (`Order.place` is on the entity, so it needs no instance).
 - Mock the port interface, not the concrete repository. The mock must match the real port shape (every method of the interface).
 - The unit-of-work mock runs `work` and returns its result: `run: vi.fn(({ work }) => work())`. Assert the `userId` it received for send and cancel.
 - Assert the outcome: the saved order, the thrown exception, the status. Domain rules are tested in the entity and service specs, not here.

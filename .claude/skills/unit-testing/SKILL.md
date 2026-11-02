@@ -55,7 +55,7 @@ Happy path + each error path + each domain edge case. **If you can't name the ri
 
 1. **Test behavior, not implementation** — Assert what happened (output, thrown error, resulting state), not how it happened
 2. **Classicist mocking** — Only mock ports/interfaces (repositories). Domain objects are always real
-3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
+3. **Manual instantiation** — Create use cases with `new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService())` (domain services are real); use `Test.createTestingModule` only when the test needs Nest DI
 4. **One reason to fail** — Each test should fail for exactly one reason
 5. **No test should break on refactor** — If internals change but behavior stays the same, tests must pass
 
@@ -100,7 +100,7 @@ const mockOrders: Mocked<OrderRepository> = {
 
 const mockUow: Mocked<UnitOfWork> = { run: vi.fn() }
 const mockMarketData: Mocked<MarketDataRepository> = { searchLatestClose: vi.fn() }
-const useCase = new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService(), new DecideOrderService())
+const useCase = new SendOrderUseCase(mockUow, mockOrders, mockMarketData, new SummarizeLedgerService())
 
 beforeEach(() => {
   vi.resetAllMocks()
