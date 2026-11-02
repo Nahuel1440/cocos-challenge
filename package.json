@@ -6,6 +6,7 @@
     "node": "^22"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "start:dev": "nest start --watch",
     "build": "nest build",
     "test": "vitest run",
