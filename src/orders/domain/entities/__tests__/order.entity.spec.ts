@@ -903,7 +903,7 @@ describe('place', () => {
     { marketPrice: '0', size: 5, amount: null, expectedSize: 5 },
     { marketPrice: '-1.00', size: null, amount: '100.00', expectedSize: null },
   ])(
-    'should reject with NO_MARKET_PRICE when the market price is 0 or below',
+    'should reject with NO_MARKET_PRICE when the market price is $marketPrice, size $size and amount $amount',
     ({ marketPrice, size, amount, expectedSize }) => {
       // Arrange
       const input = OrderInputMother.create({
