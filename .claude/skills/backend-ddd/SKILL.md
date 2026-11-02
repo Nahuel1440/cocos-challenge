@@ -3,7 +3,7 @@ name: backend-ddd
 description: "Where code goes in the Cocos hexagonal NestJS API: module layout, domain services, entities, ports, dumb Prisma repositories, use cases, controllers. MUST be used before creating or moving a file under `src/`, or when adding a module, entity, domain service, port, repository, use case, controller or DTO. Do NOT use for tests (unit-testing, e2e-testing skills)."
 ---
 
-If this skill and `docs/SPEC.md` disagree, SPEC wins: STOP and tell the user. Cocos has no soft delete, criteria builder, domain events or value objects (money is `Decimal`): do not add them. Templates for repository, mapper, module, controller and DTO: [module-scaffold.md](references/module-scaffold.md).
+Cocos has no soft delete, criteria builder, domain events or value objects (money is `Decimal`): do not add them. Templates for repository, mapper, module, controller and DTO: [module-scaffold.md](references/module-scaffold.md).
 
 ## Layout
 
