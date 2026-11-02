@@ -1,14 +1,6 @@
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  inject,
-} from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '@/app.module';
 import { PrismaService } from '@/shared/infrastructure/prisma/prisma.service';
 import { reloadSeed } from './support/reload-seed';
@@ -19,7 +11,6 @@ describe('Test harness (e2e)', () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = inject('databaseUrl');
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

@@ -16,11 +16,21 @@ export async function reloadSeed(): Promise<void> {
       await client.query(
         `INSERT INTO public."${tablename}" SELECT * FROM seed_snapshot."${tablename}"`,
       );
-      await client.query(
-        `SELECT setval(pg_get_serial_sequence('public."${tablename}"', 'id'),
-                       COALESCE(MAX(id), 1), MAX(id) IS NOT NULL)
-         FROM public."${tablename}"`,
+      // Any column that owns a sequence, whatever its name (a table may have no `id`).
+      const { rows: serials } = await client.query<{ column: string }>(
+        `SELECT attname AS "column" FROM pg_attribute
+         WHERE attrelid = $1::regclass AND attnum > 0 AND NOT attisdropped
+           AND pg_get_serial_sequence($2, attname) IS NOT NULL`,
+        [`public."${tablename}"`, `public."${tablename}"`],
       );
+      for (const { column } of serials) {
+        await client.query(
+          `SELECT setval(pg_get_serial_sequence($1, $2),
+                         COALESCE(MAX("${column}"), 1), MAX("${column}") IS NOT NULL)
+           FROM public."${tablename}"`,
+          [`public."${tablename}"`, column],
+        );
+      }
     }
   } finally {
     await client.end();
