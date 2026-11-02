@@ -1,0 +1,209 @@
+import Decimal from 'decimal.js';
+import { describe, expect, it } from 'vitest';
+import { OrderInputMother } from '@/orders/domain/entities/__tests__/order-input.mother';
+import { Order } from '@/orders/domain/entities/order.entity';
+
+const INSTRUMENT_ID = 47;
+const USER_ID = 7;
+const NOW = new Date('2026-01-15T12:00:00.000Z');
+
+describe('place', () => {
+  it('should keep the userId, the given datetime and a null id', () => {
+    // Arrange
+    const OTHER_USER_ID = 8;
+    const PLACED_AT = new Date('2026-03-01T10:15:00.000Z');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 5,
+    });
+
+    // Act
+    const order = Order.place({
+      userId: OTHER_USER_ID,
+      input,
+      marketPrice: new Decimal('100.00'),
+      availableCash: new Decimal('1000'),
+      availableShares: 0,
+      now: PLACED_AT,
+    });
+
+    // Assert
+    const primitives = order.toPrimitives();
+    expect(primitives.id).toBeNull();
+    expect(primitives.userId).toBe(OTHER_USER_ID);
+    expect(primitives.datetime).toBe(PLACED_AT);
+    expect(primitives.instrumentId).toBe(INSTRUMENT_ID);
+    expect(primitives.side).toBe('BUY');
+    expect(primitives.type).toBe('MARKET');
+  });
+
+  it('should expose price as a decimal string in toPrimitives', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('930.55');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 1,
+    });
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: new Decimal('1000'),
+      availableShares: 0,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.toPrimitives().price).toBe('930.55');
+  });
+
+  it('should fill a MARKET BUY at the market price when cash covers it', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 5,
+    });
+    const AVAILABLE_CASH = new Decimal('1000');
+    const AVAILABLE_SHARES = 0;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('FILLED');
+    expect(order.getRejectionReason()).toBeNull();
+    expect(order.toPrimitives().price).toBe(MARKET_PRICE.toFixed());
+    expect(order.toPrimitives().size).toBe(5);
+  });
+
+  it('should leave a LIMIT BUY as NEW at the limit price when cash covers it', () => {
+    // Arrange
+    const LIMIT_PRICE = new Decimal('90.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'LIMIT',
+      size: 5,
+      limitPrice: LIMIT_PRICE,
+    });
+    const AVAILABLE_CASH = new Decimal('1000');
+    const AVAILABLE_SHARES = 0;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: new Decimal('100.00'),
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('NEW');
+    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+  });
+
+  it('should ignore the market price when the order is a LIMIT', () => {
+    // Arrange
+    const LIMIT_PRICE = new Decimal('90.00');
+    const NO_MARKET_PRICE = null;
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'LIMIT',
+      size: 5,
+      limitPrice: LIMIT_PRICE,
+    });
+    const AVAILABLE_CASH = new Decimal('1000');
+    const AVAILABLE_SHARES = 0;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: NO_MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('NEW');
+    expect(order.getRejectionReason()).toBeNull();
+    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+  });
+
+  it('should accept a BUY when its cost equals the available cash', () => {
+    // Arrange
+    const MARKET_PRICE = new Decimal('100.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: 10,
+    });
+    const AVAILABLE_CASH = new Decimal('1000');
+    const AVAILABLE_SHARES = 0;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: MARKET_PRICE,
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('FILLED');
+    expect(order.getRejectionReason()).toBeNull();
+  });
+
+  it('should leave a LIMIT SELL as NEW when available shares cover the size', () => {
+    // Arrange
+    const LIMIT_PRICE = new Decimal('120.00');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'SELL',
+      type: 'LIMIT',
+      size: 4,
+      limitPrice: LIMIT_PRICE,
+    });
+    const AVAILABLE_CASH = new Decimal('0');
+    const AVAILABLE_SHARES = 10;
+
+    // Act
+    const order = Order.place({
+      userId: USER_ID,
+      input,
+      marketPrice: new Decimal('100.00'),
+      availableCash: AVAILABLE_CASH,
+      availableShares: AVAILABLE_SHARES,
+      now: NOW,
+    });
+
+    // Assert
+    expect(order.getStatus()).toBe('NEW');
+    expect(order.getRejectionReason()).toBeNull();
+    expect(order.toPrimitives().price).toBe(LIMIT_PRICE.toFixed());
+    expect(order.toPrimitives().size).toBe(4);
+  });
+});
