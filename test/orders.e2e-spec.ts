@@ -53,7 +53,7 @@ describe('POST /orders', () => {
     await reloadSeed();
   });
 
-  it('should return 201 FILLED with a Location when a MARKET BUY has enough cash', async () => {
+  it('should return 201 FILLED when a MARKET BUY has enough cash', async () => {
     const response = await request(app.getHttpServer())
       .post('/orders')
       .set('X-User-Id', USER_WITH_CASH)
@@ -66,7 +66,7 @@ describe('POST /orders', () => {
       .expect(201);
 
     expect(response.body.status).toBe('FILLED');
-    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+    expect(response.headers.location).toBeUndefined();
   });
 
   it('should reject with 400 VALIDATION_ERROR when the body has an unknown field', async () => {
@@ -95,6 +95,12 @@ describe('POST /orders', () => {
       requestId: response.headers['x-request-id'],
     });
     expect(ordersAfter).toBe(ordersBefore);
+  });
+
+  it('should not return a Location header when an order is created', async () => {
+    const response = await sendOrder({ type: 'MARKET', size: 1 }).expect(201);
+
+    expect(response.headers.location).toBeUndefined();
   });
 
   it('should return 400 VALIDATION_ERROR when both size and amount are sent', async () => {
@@ -355,7 +361,7 @@ describe('POST /orders', () => {
     expect(response.body.code).toBe('VALIDATION_ERROR');
   });
 
-  it('should return 201 NEW with a Location when a LIMIT BUY has enough cash', async () => {
+  it('should return 201 NEW when a LIMIT BUY has enough cash', async () => {
     const response = await sendOrder({
       type: 'LIMIT',
       size: 1,
@@ -364,10 +370,10 @@ describe('POST /orders', () => {
 
     expect(response.status).toBe(201);
     expect(response.body.status).toBe('NEW');
-    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+    expect(response.headers.location).toBeUndefined();
   });
 
-  it('should return 201 REJECTED with a Location when a MARKET BUY has too little cash', async () => {
+  it('should return 201 REJECTED when a MARKET BUY has too little cash', async () => {
     const SIZE_ABOVE_CASH = 1000000;
 
     const response = await sendOrder({ type: 'MARKET', size: SIZE_ABOVE_CASH });
@@ -375,7 +381,7 @@ describe('POST /orders', () => {
     expect(response.status).toBe(201);
     expect(response.body.status).toBe('REJECTED');
     expect(response.body.rejectionReason).toBe('INSUFFICIENT_FUNDS');
-    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+    expect(response.headers.location).toBeUndefined();
   });
 
   const storedSize = async (orderId: number) => {

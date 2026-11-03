@@ -46,7 +46,6 @@ export class OrdersController {
       price: dto.price ?? null,
       idempotencyKey: idempotencyKey ?? null,
     });
-    response.setHeader('Location', `/orders/${result.orderId}`);
 
     if (result.replayed) {
       response.setHeader('Idempotent-Replayed', 'true');

@@ -52,7 +52,7 @@ describe('POST /orders with Idempotency-Key', () => {
 
     expect(retry.status).toBe(201);
     expect(retry.headers['idempotent-replayed']).toBe('true');
-    expect(retry.headers.location).toBe(first.headers.location);
+    expect(retry.headers.location).toBeUndefined();
     expect(retry.body).toEqual(first.body);
   });
 
