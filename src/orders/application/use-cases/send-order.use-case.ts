@@ -2,13 +2,11 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import {
-  MAX_ORDER_SIZE,
   Order,
   type OrderSide,
   type OrderType,
 } from '@/orders/domain/entities/order.entity';
 import { IdempotencyKeyConflictException } from '@/orders/domain/exceptions/idempotency-key-conflict.exception';
-import { OrderSizeTooLargeException } from '@/orders/domain/exceptions/order-size-too-large.exception';
 import { OrderInstrumentNotTradableException } from '@/orders/domain/exceptions/order-instrument-not-tradable.exception';
 import {
   IDEMPOTENCY_REPOSITORY,
@@ -153,8 +151,6 @@ export class SendOrderUseCase {
       now: new Date(),
     });
 
-    this.assertSizeFits(order);
-
     return this.orders.save(order);
   }
 
@@ -201,14 +197,6 @@ export class SendOrderUseCase {
 
     if (type === null || type === 'MONEDA') {
       throw new OrderInstrumentNotTradableException(instrumentId);
-    }
-  }
-
-  private assertSizeFits(order: Order): void {
-    const { size } = order.toPrimitives();
-
-    if (size !== null && size > MAX_ORDER_SIZE) {
-      throw new OrderSizeTooLargeException(MAX_ORDER_SIZE);
     }
   }
 

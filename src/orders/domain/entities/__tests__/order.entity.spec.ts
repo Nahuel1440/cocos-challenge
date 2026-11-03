@@ -4,6 +4,7 @@ import { OrderInputMother } from '@/orders/domain/entities/__tests__/order-input
 import { OrderMother } from '@/orders/domain/entities/__tests__/order.mother';
 import { Order } from '@/orders/domain/entities/order.entity';
 import { OrderNotCancellableException } from '@/orders/domain/exceptions/order-not-cancellable.exception';
+import { OrderSizeTooLargeException } from '@/orders/domain/exceptions/order-size-too-large.exception';
 
 const INSTRUMENT_ID = 47;
 const USER_ID = 7;
@@ -714,6 +715,31 @@ describe('place', () => {
       expect(order.toPrimitives().size).toBe(expectedSize);
     },
   );
+
+  it('should throw when the size exceeds the maximum even if the order would be rejected', () => {
+    const HUGE_AMOUNT = new Decimal('99999999.99');
+    const TINY_PRICE = new Decimal('0.01');
+    const NO_CASH = new Decimal('0');
+    const input = OrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: null,
+      amount: HUGE_AMOUNT,
+    });
+
+    const place = () =>
+      Order.place({
+        userId: USER_ID,
+        input,
+        marketPrice: TINY_PRICE,
+        availableCash: NO_CASH,
+        availableShares: 0,
+        now: NOW,
+      });
+
+    expect(place).toThrow(OrderSizeTooLargeException);
+  });
 });
 
 describe('cancel', () => {
