@@ -160,7 +160,6 @@ Order submission and cancellation use a transaction with a per-user advisory loc
   - The user's lock held for 9 seconds, 15 orders from that user: before, 15 `500`, and a second user's `GET /portfolio` got `500` after 5.0 s; now, 11 `LEDGER_BUSY` and 4 `SERVICE_BUSY`, and the second user got `200` after 1.1 s.
   - There is no per-user cap on concurrent requests, so a burst from one user still fills the pool. A lock held outside the API (for example by a migration) on a later statement of a request still gives `500`: only the per-user lock is mapped to `LEDGER_BUSY`.
   - No production throughput guarantee is claimed.
-- Shutdown hooks disconnect Prisma but do not fully drain in-flight HTTP requests before closing the database.
 - There is no order-retrieval or order-history endpoint.
 
 ## Further documentation
