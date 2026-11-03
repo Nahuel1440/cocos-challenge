@@ -93,7 +93,7 @@ curl -s -i -X POST $B/orders -H "$H" -H 'Content-Type: application/json' \
 curl -s -X POST $B/orders/<id>/cancel -H "$H"
 ```
 
-The same requests are in a Postman collection, [cocos-api.postman_collection.json](cocos-api.postman_collection.json). In Postman: Import, pick the file, then run the requests in order. Variables `baseUrl`, `userId` and `orderId` are set in the collection; the LIMIT request saves the new order id for the cancel request.
+Optional: the same requests are in a Postman collection, [cocos-api.postman_collection.json](cocos-api.postman_collection.json). Import the file in Postman and run the requests in order; the LIMIT request saves its order id for the cancel request.
 
 Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `size` (integer) or `amount` (decimal string). `price` is a decimal string, required for LIMIT, not allowed for MARKET. Money has at most 2 decimals. Errors have one shape: `{ statusCode, code, message, requestId }`. A `REJECTED` order is not an error: it is a `201` with `status: "REJECTED"` and a `rejectionReason` (see D-17).
 
