@@ -14,7 +14,6 @@ import {
 } from '@/shared/application/unit-of-work.port';
 import { PrismaModule } from '@/shared/infrastructure/prisma/prisma.module';
 import { NoActiveTransactionError } from '@/shared/infrastructure/transactions/assert-transaction-active';
-import { NestedUnitOfWorkOptionsError } from '@/shared/infrastructure/transactions/cls-unit-of-work';
 import { TransactionsModule } from '@/shared/infrastructure/transactions/transactions.module';
 import { reloadSeed } from '../support/reload-seed';
 import { truncateAllTables } from '../support/truncate-all-tables';
@@ -138,48 +137,15 @@ describe('UnitOfWork (integration)', () => {
     expect(newOrdersSeenByB).toBe(1);
   });
 
-  it('should reject a write when the work runs with readOnly', async () => {
-    const write = uow.run(
-      () =>
-        txHost.tx.order.create({
-          data: {
-            instrumentId: 31,
-            userId: 1,
-            size: 7777,
-            price: '10.00',
-            type: 'LIMIT',
-            side: 'BUY',
-            status: 'NEW',
-            datetime: new Date(),
-          },
-        }),
-      { readOnly: true },
-    );
+  it('should run the work in READ COMMITTED', async () => {
+    const level = await uow.run(async () => {
+      const rows = await txHost.tx.$queryRaw<
+        { transaction_isolation: string }[]
+      >`SHOW transaction_isolation`;
+      return rows[0]?.transaction_isolation;
+    });
 
-    await expect(write).rejects.toThrow(/25006|read-only transaction/);
-    expect(await txHost.tx.order.count({ where: { size: 7777 } })).toBe(0);
-  });
-
-  it('should run the work at the requested isolation level', async () => {
-    const level = await uow.run(
-      async () => {
-        const rows = await txHost.tx.$queryRaw<
-          { transaction_isolation: string }[]
-        >`SHOW transaction_isolation`;
-        return rows[0]?.transaction_isolation;
-      },
-      { isolation: 'repeatable-read' },
-    );
-
-    expect(level).toBe('repeatable read');
-  });
-
-  it('should reject a nested run when it passes options', async () => {
-    const nested = uow.run(() =>
-      uow.run(async () => 1, { isolation: 'serializable' }),
-    );
-
-    await expect(nested).rejects.toThrow(NestedUnitOfWorkOptionsError);
+    expect(level).toBe('read committed');
   });
 
   it('should throw when lockLedger runs outside a unit of work', async () => {

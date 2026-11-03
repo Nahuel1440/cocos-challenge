@@ -13,10 +13,12 @@ describe('present', () => {
     const entries = ['33.33', '33.33', '33.34'].map((price) =>
       LedgerEntryMother.filledBuy({ instrumentId: PAMP_ID, size: 1, price }),
     );
+
     const portfolio = new BuildPortfolioService().run({
       summary: new SummarizeLedgerService().run(entries),
       latestPrices: new Map([[PAMP_ID, PRICE]]),
     });
+
     const position = portfolio.positions[0]!;
 
     const body = PortfolioPresenter.present({
