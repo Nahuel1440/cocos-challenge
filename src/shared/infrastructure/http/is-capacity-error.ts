@@ -1,7 +1,10 @@
 import { Prisma } from '@/generated/prisma/client';
 
 const TRANSACTION_API_ERROR = 'P2028';
-const POOL_TIMEOUT_MESSAGE = 'timeout exceeded when trying to connect';
+const POOL_TIMEOUT_MESSAGES = new Set([
+  'timeout exceeded when trying to connect',
+  'Connection terminated due to connection timeout',
+]);
 
 export function isCapacityError(exception: unknown): boolean {
   if (exception instanceof Prisma.PrismaClientKnownRequestError) {
@@ -9,6 +12,6 @@ export function isCapacityError(exception: unknown): boolean {
   }
 
   return (
-    exception instanceof Error && exception.message === POOL_TIMEOUT_MESSAGE
+    exception instanceof Error && POOL_TIMEOUT_MESSAGES.has(exception.message)
   );
 }
