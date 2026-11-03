@@ -3,7 +3,12 @@ import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import {
+  LEDGER_LOCK_NAMESPACE,
+  waitForLedgerLockWaiters,
+} from './support/ledger-lock';
 import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
 
@@ -12,6 +17,16 @@ const STARTUP_LIMIT_MS = 20000;
 const LOG_LIMIT_MS = 5000;
 const STOP_LIMIT_MS = 5000;
 const POLL_INTERVAL_MS = 50;
+const SHUTDOWN_HEAD_START_MS = 200;
+const SIGTERM_TEST_TIMEOUT_MS = 20000;
+const OWNER = 1;
+const LIMIT_BUY = {
+  instrumentId: 47,
+  side: 'BUY',
+  type: 'LIMIT',
+  size: 1,
+  price: '100.00',
+};
 const AUTHORIZATION = 'Bearer secret-token';
 const COOKIE = 'session=secret-cookie';
 
@@ -71,7 +86,7 @@ describe('built application', () => {
   }, STARTUP_LIMIT_MS + 5000);
 
   afterAll(async () => {
-    if (!child || child.exitCode !== null) return;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
     child.kill('SIGTERM');
     const forced = setTimeout(() => child.kill('SIGKILL'), STOP_LIMIT_MS);
     await once(child, 'exit');
@@ -97,5 +112,43 @@ describe('built application', () => {
       expect(output).not.toContain(COOKIE);
     },
     LOG_LIMIT_MS + 5000,
+  );
+
+  it(
+    'should finish an in-flight order when the built app receives SIGTERM',
+    async () => {
+      const holder = new Client({ connectionString: inject('databaseUrl') });
+      await holder.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [
+          LEDGER_LOCK_NAMESPACE,
+          OWNER,
+        ]);
+        const inFlight = fetch(`http://127.0.0.1:${port}/orders`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': String(OWNER),
+          },
+          body: JSON.stringify(LIMIT_BUY),
+        });
+        const waiters = await waitForLedgerLockWaiters(holder, OWNER);
+        expect(waiters).toBe(1);
+
+        child.kill('SIGTERM');
+        await new Promise((resolve) =>
+          setTimeout(resolve, SHUTDOWN_HEAD_START_MS),
+        );
+        await holder.query('COMMIT');
+
+        const response = await inFlight;
+        expect(response.status).toBe(201);
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        await holder.end();
+      }
+    },
+    SIGTERM_TEST_TIMEOUT_MS,
   );
 });
