@@ -116,7 +116,7 @@ For example, selling 100 shares of instrument 47 on the fresh seed is rejected b
 }
 ```
 
-Field-validation failures return `400` without storing an order. A request that runs out of waiting time for a database connection returns `503 SERVICE_BUSY` with `Retry-After: 1`; nothing was saved and a retry is safe. The error filter logs a `503` as a warning. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
+Field-validation failures return `400` without storing an order. A request that waits more than 2 seconds for the per-user lock returns `503 LEDGER_BUSY`, and one that runs out of waiting time for a database connection returns `503 SERVICE_BUSY`. Both carry `Retry-After: 1`; nothing was saved, and a retry (with the same `Idempotency-Key`, if you sent one) creates the order once. The error filter logs a `503` as a warning. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
 
 ```json
 {
@@ -142,7 +142,7 @@ Modules (`orders`, `portfolio`, `instruments`) separate application use cases, d
 
 The pure domain pieces are `SummarizeLedgerService` (cash, reservations, holdings and moving average), `Order` (placement and cancellation rules), and `BuildPortfolioService` (valuation and return). Their unit tests need no database. Instrument search stays thin, without a domain entity.
 
-Order submission and cancellation use a transaction with a per-user advisory lock before reading the ledger. This serializes balance-changing operations for that user. The order and any idempotent response are saved atomically.
+Order submission and cancellation use a transaction with a per-user advisory lock before reading the ledger. This serializes balance-changing operations for that user. The wait is bounded: `lock_timeout` is 2 seconds (set with `set_config(..., true)`, so it ends with the transaction). The order and any idempotent response are saved atomically.
 
 ## Assumptions and seed data
 
@@ -155,7 +155,11 @@ Order submission and cancellation use a transaction with a per-user advisory loc
 
 - Each ledger read replays the user's FILLED and NEW orders, so cost grows with account history. Search has no pagination.
 - Portfolio cash and reservations come from one orders query; quotes are read separately. There is no atomic snapshot across ledger and prices.
-- Heavy same-user concurrency queues behind the advisory lock while holding database connections. Pool or transaction waits fail with `503 SERVICE_BUSY` instead of `500`; no production throughput guarantee is claimed.
+- Heavy same-user concurrency queues behind the advisory lock while holding database connections. All waits are set in the code: pool of 10 connections, 2 seconds for a connection (`connectionTimeoutMillis` and Prisma `maxWait`), 2 seconds for the per-user lock, 5 seconds per transaction. Measured by hand on one machine, with 20,000 orders for one user (about 145 ms per order); the load script is not in the repo, so treat the numbers as indicative:
+  - A burst of 150 parallel orders from that user: before, 42 `201` and 108 `500`, in 7.0 s; now, 34 `201` and 116 `503`, in 5.9 s. A second user's `GET /portfolio` during the burst: before, `200` after 5.6 s; now, `503` after 2.2 s. Other users fail sooner instead of waiting; they are not served better.
+  - The user's lock held for 9 seconds, 15 orders from that user: before, 15 `500`, and a second user's `GET /portfolio` got `500` after 5.0 s; now, 11 `LEDGER_BUSY` and 4 `SERVICE_BUSY`, and the second user got `200` after 1.1 s.
+  - There is no per-user cap on concurrent requests, so a burst from one user still fills the pool. A lock held outside the API (for example by a migration) on a later statement of a request still gives `500`: only the per-user lock is mapped to `LEDGER_BUSY`.
+  - No production throughput guarantee is claimed.
 - Shutdown hooks disconnect Prisma but do not fully drain in-flight HTTP requests before closing the database.
 - There is no order-retrieval or order-history endpoint.
 
