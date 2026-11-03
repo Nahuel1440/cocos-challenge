@@ -16,7 +16,9 @@ export class SearchInstrumentsUseCase {
     private readonly instruments: InstrumentRepository,
   ) {}
 
-  public async run(input: SearchInstrumentsInput): Promise<InstrumentSummary[]> {
+  public async run(
+    input: SearchInstrumentsInput,
+  ): Promise<InstrumentSummary[]> {
     const { query } = input;
 
     const text = query.trim();
@@ -24,6 +26,6 @@ export class SearchInstrumentsUseCase {
       return [];
     }
 
-    return this.instruments.searchByText({ text });
+    return this.instruments.searchTradableByText({ text });
   }
 }
