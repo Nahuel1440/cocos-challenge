@@ -26,7 +26,10 @@ import {
   ORDER_REPOSITORY,
   type OrderRepository,
 } from '@/orders/domain/ports/order.repository';
-import { SummarizeLedgerService } from '@/orders/domain/services/summarize-ledger.service';
+import {
+  LEDGER_STATUSES,
+  SummarizeLedgerService,
+} from '@/orders/domain/services/summarize-ledger.service';
 import {
   UNIT_OF_WORK,
   type UnitOfWork,
@@ -129,7 +132,7 @@ export class SendOrderUseCase {
     const { userId, instrumentId } = input;
     const entries = await this.orders.searchByUser({
       userId,
-      statuses: ['FILLED', 'NEW'],
+      statuses: LEDGER_STATUSES,
     });
     const marketPrice = await this.marketData.searchLatestClose(instrumentId);
     const summary = this.summarizeLedger.run(entries);
@@ -210,29 +213,9 @@ export class SendOrderUseCase {
   }
 
   private logOutcome(order: Order): void {
-    const {
-      id,
-      userId,
-      instrumentId,
-      side,
-      type,
-      status,
-      rejectionReason,
-      size,
-      price,
-    } = order.toPrimitives();
-
     this.logger.log({
       msg: 'Order placed',
-      orderId: id,
-      userId,
-      instrumentId,
-      side,
-      type,
-      status,
-      rejectionReason,
-      size,
-      price,
+      ...order.toPrimitives(),
     });
   }
 }

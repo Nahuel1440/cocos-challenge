@@ -4,14 +4,11 @@ import { SummarizeLedgerService } from '@/orders/domain/services/summarize-ledge
 import { GetPortfolioUseCase } from '@/portfolio/application/use-cases/get-portfolio.use-case';
 import type { InstrumentQuoteRepository } from '@/portfolio/domain/ports/instrument-quote.repository';
 import { BuildPortfolioService } from '@/portfolio/domain/services/build-portfolio.service';
-import type { UnitOfWork } from '@/shared/application/unit-of-work.port';
 
 const USER_ID = 1;
 
 describe('run', () => {
-  it('should read the portfolio in a read-only repeatable-read transaction', async () => {
-    const uow: UnitOfWork = { run: (work) => work() };
-    const run = vi.spyOn(uow, 'run');
+  it('should read the whole ledger in one query', async () => {
     const orders: Mocked<OrderRepository> = {
       lockLedger: vi.fn(),
       searchByUser: vi.fn().mockResolvedValue([]),
@@ -22,7 +19,6 @@ describe('run', () => {
       searchByInstrumentIds: vi.fn().mockResolvedValue([]),
     };
     const useCase = new GetPortfolioUseCase(
-      uow,
       orders,
       quotes,
       new SummarizeLedgerService(),
@@ -31,9 +27,6 @@ describe('run', () => {
 
     await useCase.run({ userId: USER_ID });
 
-    expect(run).toHaveBeenCalledWith(expect.any(Function), {
-      isolation: 'repeatable-read',
-      readOnly: true,
-    });
+    expect(orders.searchByUser).toHaveBeenCalledTimes(1);
   });
 });
