@@ -42,14 +42,16 @@ describe('GET /instruments', () => {
     );
   }
 
-  async function insertInstruments(tickers: string[]): Promise<void> {
+  async function insertInstruments(
+    instruments: { ticker: string; name: string }[],
+  ): Promise<void> {
     const client = new Client({ connectionString: inject('databaseUrl') });
     await client.connect();
     try {
-      for (const ticker of tickers) {
+      for (const { ticker, name } of instruments) {
         await client.query(
-          "INSERT INTO instruments (ticker, name, type) VALUES ($1, $1, 'ACCIONES')",
-          [ticker],
+          "INSERT INTO instruments (ticker, name, type) VALUES ($1, $2, 'ACCIONES')",
+          [ticker, name],
         );
       }
     } finally {
@@ -173,14 +175,20 @@ describe('GET /instruments', () => {
 
   it('should return at most 50 instruments when more match the query', async () => {
     const MAX_RESULTS = 50;
-    const BEST_MATCH = 'ZQX';
-    const PREFIX_MATCHES = Array.from(
+    const BEST_MATCH = 'ZQ1';
+    const NAME_PREFIX_MATCHES = Array.from(
       { length: MAX_RESULTS + 10 },
-      (_, index) => `ZQX${String(index).padStart(3, '0')}`,
+      (_, index) => {
+        const ticker = `AA${String(index).padStart(3, '0')}`;
+        return { ticker, name: `ZQ ${ticker}` };
+      },
     );
-    await insertInstruments([...PREFIX_MATCHES, BEST_MATCH]);
+    await insertInstruments([
+      ...NAME_PREFIX_MATCHES,
+      { ticker: BEST_MATCH, name: BEST_MATCH },
+    ]);
 
-    const tickers = await searchTickers('zqx');
+    const tickers = await searchTickers('zq');
 
     expect(tickers).toHaveLength(MAX_RESULTS);
     expect(tickers[0]).toBe(BEST_MATCH);
