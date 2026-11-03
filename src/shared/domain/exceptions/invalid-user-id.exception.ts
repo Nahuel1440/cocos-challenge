@@ -6,6 +6,6 @@ export class InvalidUserIdException extends DomainException {
   public readonly category = ErrorCategory.InvalidArgument;
 
   constructor() {
-    super('X-User-Id must be an integer');
+    super('X-User-Id must be an integer without leading zeros');
   }
 }

@@ -94,6 +94,14 @@ describe('GET /instruments', () => {
     });
   });
 
+  it('should return 200 when the query has exactly 100 characters', async () => {
+    const MAX_QUERY_LENGTH = 100;
+
+    const tickers = await searchTickers('a'.repeat(MAX_QUERY_LENGTH));
+
+    expect(tickers).toEqual([]);
+  });
+
   it('should rank an exact ticker match first, then ticker prefix, then name prefix, then substring when several instruments match', async () => {
     const EXACT_THEN_NAME_PREFIX = ['TRAN', 'TGNO4', 'TGSU2'];
     const PREFIX_THEN_NAME_PREFIX_THEN_SUBSTRING = [

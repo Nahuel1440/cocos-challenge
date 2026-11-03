@@ -14,7 +14,7 @@ export class OrderIdPipe implements PipeTransform<string, string> {
 
     if (!CANONICAL_ID.test(value) || id > POSTGRES_INT_MAX) {
       throw new BadRequestException(
-        `id must be an integer from 1 to ${POSTGRES_INT_MAX}`,
+        `id must be an integer from 1 to ${POSTGRES_INT_MAX}, without leading zeros`,
       );
     }
 

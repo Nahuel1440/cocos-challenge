@@ -99,14 +99,14 @@ Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `si
 
 More on the order body:
 
-- A body must be sent as `application/json`, else `415 UNSUPPORTED_MEDIA_TYPE`.
+- `POST /orders` needs `Content-Type: application/json`, else `415 UNSUPPORTED_MEDIA_TYPE`. The other routes take no body and ignore one.
 - `X-User-Id` and the order id in `/orders/:id/cancel` are plain integers with no leading zeros: `0001` is a `400`.
-- A field the API does not know, in the body or in the query string, is a `400 VALIDATION_ERROR`; it is not ignored.
+- A field the API does not know, in the order body or in the `GET /instruments` query string, is a `400 VALIDATION_ERROR`; it is not ignored. Other routes ignore unknown query parameters.
 - `instrumentId` is an integer from 1 to 2147483647. It must exist and not be `MONEDA` (a currency), else `400 VALIDATION_ERROR`.
 - `size` is an integer from 1 to 2147483647. `amount` and `price` are decimal strings from `0.01` to `99999999.99`.
 - A LIMIT order with `amount` must buy at least one share at its `price`, else `400`.
 - `rejectionReason` is one of `INSUFFICIENT_FUNDS`, `INSUFFICIENT_SHARES`, `AMOUNT_BELOW_ONE_SHARE`, `NO_MARKET_PRICE`.
-- Error codes you can meet: `VALIDATION_ERROR` (400), `UNSUPPORTED_MEDIA_TYPE` (415), `ORDER_NOT_FOUND` (404), `ORDER_NOT_CANCELLABLE` (409), `IDEMPOTENCY_KEY_CONFLICT` (422), `INTERNAL_ERROR` (500).
+- Error codes you can meet: `VALIDATION_ERROR` (400), `UNSUPPORTED_MEDIA_TYPE` (415), `ORDER_NOT_FOUND` (404), `ORDER_NOT_CANCELLABLE` (409), `IDEMPOTENCY_KEY_CONFLICT` (422), `PAYLOAD_TOO_LARGE` (413), `INTERNAL_ERROR` (500).
 
 A rejected order (user 1 holds 40 shares of instrument 47, so selling 100 is refused). Request: `{"instrumentId":47,"side":"SELL","type":"MARKET","size":100}`.
 
@@ -243,6 +243,6 @@ These are known and not fixed.
 - **Connection pool.** The pool keeps the default of 10 connections and Prisma waits only a short time (its default of 2 seconds, not set in the code) to start a transaction. Each order or cancel holds a connection while it waits for the per-user lock. Many parallel requests from one user can run out of waiting time and fail with `P2028`, which the API returns as a `500`. Prisma's default transaction timeout (5 seconds, also not set in the code) limits how long a request can sit in that queue. These defaults were not tested here. The tests use at most 8 parallel orders, below the pool size of 10, so they do not hit this. The `pg` pool does set `connectionTimeoutMillis` to 5000 (`src/shared/infrastructure/prisma/prisma.service.ts`), so a request that cannot get a connection fails after 5 seconds; the "not set in the code" above applies only to the transaction waits.
 - **Shutdown is not graceful.** `enableShutdownHooks` is on, but Nest runs `onModuleDestroy` first, and `PrismaService` disconnects there, before the HTTP server stops. In-flight requests can fail on a closed database. It is not a drain.
 - **Concurrency tests.** The send-order test and the idempotency test fail when the lock is removed: 5 of 5 runs in each case when the lock was removed by hand while the tests were written; I did not repeat this for the README. The cancel test does not detect a missing lock, because a cancel only frees cash, so a race still gives a valid result. It checks that the final state is consistent, not that the lock exists. The lock on cancel stays by design (D-9).
-- **Validation order.** Body parser errors come before the user guard, so they are returned even without `X-User-Id`: malformed JSON is `400 VALIDATION_ERROR`, and a body that is too large is `413 PAYLOAD_TOO_LARGE`. Field validation of a valid JSON body runs after the guard.
+- **Validation order.** Body parser errors come before the user guard, so they are returned even without `X-User-Id`: malformed JSON is `400 VALIDATION_ERROR`, and a body that is too large is `413 PAYLOAD_TOO_LARGE`. Field validation of a valid JSON body runs after the guard. The `415` for a wrong `Content-Type` also comes after the user guard, except an unsupported charset, which the body parser rejects first.
 - **Remote database.** Migrations were only ever applied to a local Postgres (see above).
 - **No `GET` for orders or order history.** The brief does not ask for it.

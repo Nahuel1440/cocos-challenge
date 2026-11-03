@@ -103,6 +103,24 @@ describe('POST /orders', () => {
     expect(response.headers.location).toBeUndefined();
   });
 
+  it('should accept a JSON body when the Content-Type carries a charset', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('X-User-Id', USER_WITH_CASH)
+      .set('Content-Type', 'application/json; charset=utf-8')
+      .send(
+        JSON.stringify({
+          instrumentId: INSTRUMENT_ID,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        }),
+      );
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('FILLED');
+  });
+
   it('should reject with 415 UNSUPPORTED_MEDIA_TYPE when POST /orders is sent as text/plain', async () => {
     const response = await request(app.getHttpServer())
       .post('/orders')

@@ -6,6 +6,7 @@ import {
   Post,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { CancelOrderUseCase } from '@/orders/application/use-cases/cancel-order.use-case';
 import { SendOrderUseCase } from '@/orders/application/use-cases/send-order.use-case';
@@ -13,6 +14,7 @@ import { IdempotencyKey } from '@/orders/infrastructure/http/idempotency-key.dec
 import { IdempotencyKeyPipe } from '@/orders/infrastructure/http/idempotency-key.pipe';
 import { OrderIdPipe } from '@/orders/infrastructure/http/order-id.pipe';
 import { SendOrderDto } from '@/orders/infrastructure/http/send-order.dto';
+import { JsonBodyGuard } from '@/shared/infrastructure/http/json-body.guard';
 
 interface AuthenticatedRequest {
   userId: number;
@@ -30,6 +32,7 @@ export class OrdersController {
   ) {}
 
   @Post()
+  @UseGuards(JsonBodyGuard)
   public async create(
     @Body() dto: SendOrderDto,
     @Req() request: AuthenticatedRequest,
