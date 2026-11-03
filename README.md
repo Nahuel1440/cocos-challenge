@@ -99,12 +99,14 @@ Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `si
 
 More on the order body:
 
+- A body must be sent as `application/json`, else `415 UNSUPPORTED_MEDIA_TYPE`.
+- `X-User-Id` and the order id in `/orders/:id/cancel` are plain integers with no leading zeros: `0001` is a `400`.
 - A field the API does not know, in the body or in the query string, is a `400 VALIDATION_ERROR`; it is not ignored.
 - `instrumentId` is an integer from 1 to 2147483647. It must exist and not be `MONEDA` (a currency), else `400 VALIDATION_ERROR`.
 - `size` is an integer from 1 to 2147483647. `amount` and `price` are decimal strings from `0.01` to `99999999.99`.
 - A LIMIT order with `amount` must buy at least one share at its `price`, else `400`.
 - `rejectionReason` is one of `INSUFFICIENT_FUNDS`, `INSUFFICIENT_SHARES`, `AMOUNT_BELOW_ONE_SHARE`, `NO_MARKET_PRICE`.
-- Error codes you can meet: `VALIDATION_ERROR` (400), `ORDER_NOT_FOUND` (404), `ORDER_NOT_CANCELLABLE` (409), `IDEMPOTENCY_KEY_CONFLICT` (422), `INTERNAL_ERROR` (500).
+- Error codes you can meet: `VALIDATION_ERROR` (400), `UNSUPPORTED_MEDIA_TYPE` (415), `ORDER_NOT_FOUND` (404), `ORDER_NOT_CANCELLABLE` (409), `IDEMPOTENCY_KEY_CONFLICT` (422), `INTERNAL_ERROR` (500).
 
 A rejected order (user 1 holds 40 shares of instrument 47, so selling 100 is refused). Request: `{"instrumentId":47,"side":"SELL","type":"MARKET","size":100}`.
 

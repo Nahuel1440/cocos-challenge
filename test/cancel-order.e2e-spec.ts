@@ -105,6 +105,17 @@ describe('POST /orders/:id/cancel', () => {
     expect(retry.body).toEqual(first.body);
   });
 
+  it('should reject with 400 VALIDATION_ERROR when the cancel id has leading zeros', async () => {
+    const response = await cancel(`000${SEED_ORDER_IDS.filled}`).expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('id'),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
   it('should return 409 when the order is FILLED', async () => {
     const response = await cancel(SEED_ORDER_IDS.filled);
 

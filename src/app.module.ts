@@ -8,6 +8,7 @@ import { PortfolioModule } from '@/portfolio/portfolio.module';
 import { PrismaModule } from '@/shared/infrastructure/prisma/prisma.module';
 import { TransactionsModule } from '@/shared/infrastructure/transactions/transactions.module';
 import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
+import { JsonBodyGuard } from '@/shared/infrastructure/http/json-body.guard';
 import { LOG_REDACT_PATHS } from '@/shared/infrastructure/http/log-redact-paths';
 import { UserIdGuard } from '@/shared/infrastructure/http/user-id.guard';
 import { UsersModule } from '@/shared/infrastructure/users/users.module';
@@ -42,6 +43,7 @@ const env = process.env.NODE_ENV;
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_GUARD, useClass: UserIdGuard },
+    { provide: APP_GUARD, useClass: JsonBodyGuard },
     {
       provide: APP_PIPE,
       useValue: new ValidationPipe({

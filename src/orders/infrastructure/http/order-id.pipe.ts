@@ -5,14 +5,14 @@ import {
 } from '@nestjs/common';
 import { POSTGRES_INT_MAX } from '@/shared/infrastructure/http/postgres-int-max';
 
-const DIGITS = /^\d+$/;
+const CANONICAL_ID = /^[1-9]\d*$/;
 
 @Injectable()
 export class OrderIdPipe implements PipeTransform<string, string> {
   public transform(value: string): string {
     const id = Number(value);
 
-    if (!DIGITS.test(value) || id < 1 || id > POSTGRES_INT_MAX) {
+    if (!CANONICAL_ID.test(value) || id > POSTGRES_INT_MAX) {
       throw new BadRequestException(
         `id must be an integer from 1 to ${POSTGRES_INT_MAX}`,
       );

@@ -103,6 +103,29 @@ describe('POST /orders', () => {
     expect(response.headers.location).toBeUndefined();
   });
 
+  it('should reject with 415 UNSUPPORTED_MEDIA_TYPE when POST /orders is sent as text/plain', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('X-User-Id', USER_WITH_CASH)
+      .set('Content-Type', 'text/plain')
+      .send(
+        JSON.stringify({
+          instrumentId: INSTRUMENT_ID,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        }),
+      )
+      .expect(415);
+
+    expect(response.body).toEqual({
+      statusCode: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: expect.any(String),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
   it('should return 400 VALIDATION_ERROR when both size and amount are sent', async () => {
     const response = await request(app.getHttpServer())
       .post('/orders')
