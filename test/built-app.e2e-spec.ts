@@ -78,20 +78,24 @@ describe('built application', () => {
     clearTimeout(forced);
   });
 
-  it('should redact credentials and omit X-Powered-By when the built app runs', async () => {
-    const response = await fetch(`http://127.0.0.1:${port}/portfolio`, {
-      headers: {
-        'X-User-Id': '1',
-        Authorization: AUTHORIZATION,
-        Cookie: COOKIE,
-      },
-    });
-    await waitUntil(() => output.includes('"x-user-id"'), LOG_LIMIT_MS);
+  it(
+    'should redact credentials and omit X-Powered-By when the built app runs',
+    async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/portfolio`, {
+        headers: {
+          'X-User-Id': '1',
+          Authorization: AUTHORIZATION,
+          Cookie: COOKIE,
+        },
+      });
+      await waitUntil(() => output.includes('"x-user-id"'), LOG_LIMIT_MS);
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get('x-powered-by')).toBeNull();
-    expect(output).toContain('"x-user-id":"1"');
-    expect(output).not.toContain(AUTHORIZATION);
-    expect(output).not.toContain(COOKIE);
-  }, LOG_LIMIT_MS + 5000);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-powered-by')).toBeNull();
+      expect(output).toContain('"x-user-id":"1"');
+      expect(output).not.toContain(AUTHORIZATION);
+      expect(output).not.toContain(COOKIE);
+    },
+    LOG_LIMIT_MS + 5000,
+  );
 });
