@@ -12,9 +12,6 @@ export function buildPinoHttpOptions(env: string | undefined): Options {
     },
     redact: LOG_REDACT_PATHS,
     level: env === 'test' ? 'silent' : 'info',
-    transport:
-      env === 'production' || env === 'test'
-        ? undefined
-        : { target: 'pino-pretty' },
+    transport: env === 'development' ? { target: 'pino-pretty' } : undefined,
   };
 }
