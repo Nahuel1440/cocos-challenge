@@ -1,95 +1,135 @@
 # TASKS: Portfolio, search and orders API
 
-Size S tasks, in order, from [SPEC.md](../SPEC.md). Each task fits in one commit of ≤ 400 lines. The structure follows gamora-sv: `src/<module>/{domain,application,infrastructure,presentation}`, with `src/shared` and `test/support`.
+Implementation slices for the [specification](../SPEC.md), following the task-plan IDs, including T12, T13 and T14. The development plan used test-first acceptance criteria (TDD). The evidence below is source/test inspection, not a fresh runtime test report.
 
-> **Tests:** the user writes the case names before starting each task (TDD). `no-test` = pure infrastructure.
+**Status boundary:** T1–T9 and T11–T14 are implemented by current source/test inspection. This means the implementation and relevant assertions were located, not executed in this documentation pass. T10 is delivery documentation. No application tests, build, migration command or benchmark was run for this prose-only reconciliation; documentation checks do not substitute for them.
 
-## Order and parallelism
+## Dependency structure
 
-1. T1
-2. In parallel: {T2 → T3}, T4, T5, T7
-3. In parallel: T6 (T3 + T4 + T5), T8 (T3 + T4 + T7), T9 (T3 + T4)
-4. T11 (T6)
-5. T10
+The dependency groups explain the design, not a claim that each group actually ran concurrently or landed in exactly one commit:
 
-## Tasks
+1. T1 establishes the app and runners.
+2. T2 then T3 establish database/test setup; T14 builds transaction behavior on it. T4 is the shared HTTP boundary. T13 supplies ledger rules before T5 and T7.
+3. T6 combines T4, T5 and T14. T8 combines T4 and T7 with database adapters. T9 uses T3 and T4.
+4. T11 adds cancellation on the T6/T14 boundary. T12 adds request replay after the order/cancel behavior exists.
+5. T10 documents the integrated result.
+
+The layout is domain, application and infrastructure, with HTTP adapters inside infrastructure.
+
+## Implementation slices and acceptance evidence
 
 ### T1 · App skeleton
-- **Goal:** NestJS 11 app that starts, with Pino, Vitest and lint.
-- **Where it lives:** `package.json`, `tsconfig.json`, `vitest.config.ts`, `src/main.ts`, `src/app.module.ts`.
-- **Tests:** `no-test`.
-- **Depends on:** —
+- **Acceptance:** NestJS app wiring, Pino, validation, test runners, lint/type/build commands.
+- **Source:** `package.json`, `tsconfig.json`, `vitest.config.mts`, `vitest.config.e2e.mts`, `src/main.ts`, `src/app.module.ts`, `src/shared/infrastructure/http/configure-app.ts`, `src/shared/infrastructure/http/pino-http-options.ts`.
+- **Evidence:** `test/app-wiring.e2e-spec.ts`. The production bootstrap and `test/support/create-test-app.ts` both call configureApp; app-wiring assertions include no X-Powered-By. Static verification commands are listed in the README.
+- **Dependency:** none.
 
-### T2 · Local Postgres + migrations
-- **Goal:** Postgres in Docker loaded with `database.sql`; Prisma (`db pull` + `@map`) and one migration with the SPEC changes: ENUMs, `NOT NULL`, `CHECK` from D-21, `rejection_reason` column, indexes from D-13.
-- **Where it lives:** `docker-compose.yml`, `database.sql`, `prisma/schema.prisma`, `prisma/migrations/`, `.env.example`.
-- **Tests:** `no-test` (verified by applying the migration on the seed).
-- **Depends on:** T1. **Parallel with:** T4, T5, T7.
+### T2 · Local Postgres and migrations
+- **Acceptance:** initialize the supplied seed; baseline its original tables; apply ENUMs, required fields, nullable rejection facts, rejection/cancellation CHECKs and user/daily-bar indexes. Idempotency storage is a separate migration in T12.
+- **Source:** `docker-compose.yml`, `database.sql`, `prisma/schema.prisma`, `prisma/migrations/`, `prisma.config.ts`.
+- **Evidence:** `test/support/postgres-global-setup.ts` executes post-baseline SQL migrations against the seed; `test/harness.e2e-spec.ts` checks the migrated rejection reason survives reload. This does not prove the Prisma CLI baseline/deploy sequence was rerun here.
+- **Retained pre-check criterion:** before applying constraints to any different database, check distinct enum values, NULLs in fields becoming required, and duplicate instrument/date bars. Compatibility and authorization of a remote database are not presumed or verified by local seed tests.
+- **Dependency:** T1.
 
 ### T3 · Functional test harness
-- **Goal:** Testcontainers Postgres per suite; truncate and reload the seed between tests (D-19).
-- **Where it lives:** `test/support/postgres-global-setup.ts`, `test/support/truncate-all-tables.ts`, `test/support/reload-seed.ts`.
-- **Tests:** `no-test` (a smoke test that starts the app and queries the database).
-- **Depends on:** T2.
+- **Acceptance:** one throwaway Postgres per test run, migrated seed snapshot, clean data between cases and application boot against that database.
+- **Source:** `test/support/postgres-global-setup.ts`, `test/support/create-test-app.ts`, `test/support/truncate-all-tables.ts`, `test/support/reload-seed.ts`.
+- **Evidence:** `test/harness.e2e-spec.ts` retains `should keep order 6 REJECTED with INSUFFICIENT_SHARES when the seed is reloaded after a truncate`. The e2e configuration also includes integration specs and disables parallel files sharing that database.
+- **Dependency:** T2.
 
-### T4 · `X-User-Id` guard and error mapping
-- **Goal:** a guard that reads `X-User-Id` (missing or invalid → `400`, D-22) and a `DomainException` → HTTP filter with no stack traces (NFR-6).
-- **Where it lives:** `src/shared/presentation/`, `src/shared/domain/`.
-- **Tests:** _(named by the user)_
-- **Depends on:** T1. **Parallel with:** T2, T5, T7.
+### T4 · Identity, validation, errors and request correlation
+- **Acceptance:** every route resolves declared X-User-Id and rejects missing/malformed/unknown users; errors have statusCode/code/message/requestId, unexpected stacks stay server-side, and responses expose X-Request-Id. Header IDs reject leading zeros. This is not authentication. Shared app configuration disables X-Powered-By; request logging redacts authorization/cookie/set-cookie headers.
+- **Source:** `src/shared/infrastructure/http/`, `src/shared/domain/`, `src/app.module.ts`.
+- **Evidence:** `test/app-wiring.e2e-spec.ts`, `test/request-id.e2e-spec.ts`, `src/shared/infrastructure/http/__tests__/http-exception.filter.spec.ts`, `src/shared/infrastructure/http/__tests__/pino-http-options.spec.ts`.
+- **Retained named criteria:** `should return the request id in the X-Request-Id header and the error body when a request fails`; `should log the error with its stack and hide it from the response when an unexpected error occurs`.
+- **Boundary:** parser errors precede the user guard and preserve 400/413/415 as applicable; the order-body media-type guard runs after identity validation. An incoming request ID is not trusted as the server correlation ID.
+- **Dependency:** T1.
 
-### T5 · Send-order rules (pure domain)
-- **Goal:** given the user's ledger and the order, decide `FILLED` / `NEW` / `REJECTED` + reason: available cash and shares with reservations (D-6), `size` from `amount` with floor, the four `rejection_reason` values (D-20), all with decimal (D-1).
-- **Where it lives:** `src/orders/domain/`.
-- **Tests:** _(named by the user)_
-- **Depends on:** T1. **Parallel with:** T2, T4, T7.
+### T13 · Shared ledger summary
+- **Acceptance:** `SummarizeLedgerService.run(entries)` takes FILLED/NEW entries and computes total/available cash, holdings, available shares and moving average, replayed by datetime then id. NEW reserves; FILLED settles. Average is null at zero or negative quantity; a later buy crossing positive starts at that buy's price. No market quote or I/O enters the service.
+- **Source:** `src/orders/domain/services/summarize-ledger.service.ts`.
+- **Evidence:** `src/orders/domain/services/__tests__/summarize-ledger.service.spec.ts`, including `should keep a negative quantity and a null average when a SELL goes below 0` and `should not round the average price`.
+- **Dependency:** T1. T5 and T7 consume this shared calculation rather than maintaining two copies.
 
-### T6 · `POST /orders` endpoint + mandatory functional test
-- **Goal:** body validation (D-8, D-23), transaction with `pg_advisory_xact_lock(userId)` (D-9), insert the order, `201` + `Location` (D-17).
-- **Where it lives:** `src/orders/{application,infrastructure,presentation}/`, `test/orders.e2e-spec.ts`.
-- **Tests:** _(named by the user; includes the functional test the brief asks for)_
-- **Depends on:** T3, T4, T5. **Parallel with:** T8, T9.
+### T5 · Order rules
+- **Acceptance:** `Order.place` decides FILLED/NEW/REJECTED from validated input and available resources, supports quantity/amount, floors whole shares, limits derived size, and preserves unknown price/size on rejection. All four rejection reasons remain part of the contract.
+- **Source:** `src/orders/domain/entities/order.entity.ts`.
+- **Evidence:** `src/orders/domain/entities/__tests__/order.entity.spec.ts`, including missing-price amount/null-size, below-share MARKET amounts, insufficient cash/shares and negative available-share cases. HTTP request-domain constraints are covered by T6.
+- **Dependency:** T13.
 
-### T7 · Portfolio calculation (pure domain)
-- **Goal:** holding, moving average (D-5), market value, total return `"3.33"` (D-23), positions without a price as `null` (D-26), total value (D-7).
-- **Where it lives:** `src/portfolio/domain/`.
-- **Tests:** _(named by the user)_
-- **Depends on:** T1. **Parallel with:** T2, T4, T5.
+### T14 · Transactions and per-user locking
+- **Acceptance:** `UnitOfWork.run(work)` supplies READ COMMITTED transaction context; repositories join it. The send/cancel callbacks explicitly call `orders.lockLedger(userId)` first. The UoW does not receive a user ID or acquire the lock automatically; portfolio reads do not use this UoW.
+- **Source:** `src/shared/application/unit-of-work.port.ts`, `src/shared/infrastructure/transactions/`, `src/orders/infrastructure/persistence/prisma-order.repository.ts`.
+- **Evidence:** `test/shared/unit-of-work.int-spec.ts`, included by `vitest.config.e2e.mts`, includes these integration criteria:
+  - `should make the second transaction wait when both lock the same user`
+  - `should not block when two transactions lock different users`
+  - `should see the row committed by the first transaction when the second was waiting for the lock`
+- **Boundary:** same-user writers serialize; independent users need not wait on the same advisory key. This does not assert that any raw external writer is forced to acquire it.
+- **Dependency:** T3.
 
-### T8 · `GET /portfolio` endpoint
-- **Goal:** read `FILLED` + `NEW` orders and the latest `marketdata` in a single read transaction (NFR-5) and return the SPEC contract.
-- **Where it lives:** `src/portfolio/{application,infrastructure,presentation}/`, `test/portfolio.e2e-spec.ts`.
-- **Tests:** _(named by the user)_
-- **Depends on:** T3, T4, T7. **Parallel with:** T6, T9.
+### T6 · POST /orders and mandatory functional test
+- **Acceptance:** validate the order body and tradable instrument, execute placement under T14, save the result, and return 201 without Location for FILLED, NEW and REJECTED. Include amount/price limits, exactly one size/amount, LIMIT price, no MARKET price, canonical cancel IDs and integer-ID bounds. Nonempty order bodies require JSON after identity validation; ordinary unknown body fields are rejected, with framework prototype-key exceptions described in SPEC. New orders must not overspend/oversell available resources, including under concurrency.
+- **Source:** `src/orders/application/use-cases/send-order.use-case.ts`, `src/orders/infrastructure/http/`, `src/orders/infrastructure/persistence/`.
+- **Evidence:** `test/orders.e2e-spec.ts` includes `should return 201 FILLED when a MARKET BUY has enough cash` and the retained criterion `should fill one order and reject the other with INSUFFICIENT_FUNDS when two concurrent buys only fit one at a time`. Both orders return 201; no assertion selects which request wins. The file also contains a larger competing-buy case, not a production load benchmark.
+- **HTTP evidence:** the same file asserts absence of Location, rejection of ordinary unknown fields without creating an order, JSON with charset acceptance, text/plain 415, missing-user precedence and unsupported-charset 415 before identity. No new runtime execution is claimed here.
+- **Dependencies:** T4, T5, T14.
 
-### T9 · `GET /instruments?q=` endpoint
-- **Goal:** `ILIKE` on `ticker` and `name` with escaped wildcards, response `{ "instruments": [...] }` (D-24).
-- **Where it lives:** `src/instruments/`, `test/instruments.e2e-spec.ts`.
-- **Tests:** _(named by the user)_
-- **Depends on:** T3, T4. **Parallel with:** T6, T8.
+### T7 · Portfolio calculation
+- **Acceptance:** build market values, total value and total return percentage from ledger plus quotes. Average 100, price 110 yields 10 percent. Missing quotes produce null value/return and a partial total; negative inherited holdings retain negative value and null cost-based return. Return uses the unrounded average; presentation rounds output.
+- **Source:** `src/portfolio/domain/services/build-portfolio.service.ts`, `src/portfolio/infrastructure/http/portfolio.presenter.ts`, `src/shared/infrastructure/http/to-decimal-string.ts`.
+- **Evidence:** `src/portfolio/domain/services/__tests__/build-portfolio.service.spec.ts`, `src/portfolio/infrastructure/http/__tests__/portfolio.presenter.spec.ts`.
+- **Dependency:** T13.
 
-### T11 · Mandatory cancellation: `POST /orders/:id/cancel`
-- **Objective:** implement FR-4 using the declared `X-User-Id` identity (D-22) and a transaction with `pg_advisory_xact_lock(userId)` shared with send-order (D-9).
-- **Location:** `src/orders/{domain,application,infrastructure,presentation}/`, `test/orders.e2e-spec.ts`.
-- **Tests:** _(case names are written by the user before implementation, as required above)_
-- **Acceptance:** an order owned by the declared user in `NEW` becomes `CANCELLED` and returns `200` with the order; an owned order in any other status returns `409`; a missing order or one owned by another user returns `404`. Cancelling a BUY releases its reserved cash and cancelling a SELL releases its reserved shares through the existing derived-balance model: only the order status changes; no separate balance is updated (D-6, NFR-4).
-- **Depends on:** T6.
+### T8 · GET /portfolio
+- **Acceptance:** load FILLED and NEW orders once for consistent cash/reservations, then read instrument names/quotes and return the portfolio contract. No global transaction or lock exists across these reads.
+- **Source:** `src/portfolio/application/use-cases/get-portfolio.use-case.ts`, `src/portfolio/infrastructure/persistence/`, `src/portfolio/infrastructure/http/`.
+- **Evidence:** `test/portfolio.e2e-spec.ts`, `src/portfolio/application/use-cases/__tests__/get-portfolio.use-case.spec.ts`. The HTTP file checks the seed portfolio, a user without orders, a newly placed order, and a position whose real query has no quote. Use-case assertions cover a single orders read and composition from the user ledger/quotes. No test is claimed to prove an atomic ledger/quote snapshot.
+- **Dependencies:** T4, T7, T3 for database/harness.
 
-### T10 · README
-- **Goal:** how to run the app and the tests, key decisions, assumptions (D-26, seed with holding −10, questions for Emi), what was left out (O-1..O-10) and the cuts not made.
-- **Where it lives:** `README.md`.
-- **Tests:** `no-test`.
-- **Depends on:** T6, T8, T9, T11.
+### T9 · GET /instruments?query=
+- **Acceptance:** trimmed case-insensitive ticker/name search; escape LIKE wildcards, exclude MONEDA, rank exact ticker/prefix/name prefix/substring, then ticker/id. Submitted query must be at most 100 characters before trimming and contain no NUL; ordinary unknown query parameters are rejected. Missing query is 400; valid empty input is an empty list without a repository call.
+- **Source:** `src/instruments/application/use-cases/search-instruments.use-case.ts`, `src/instruments/infrastructure/persistence/prisma-instrument.repository.ts`.
+- **Evidence:** `test/instruments.e2e-spec.ts` plus `src/instruments/application/use-cases/__tests__/search-instruments.use-case.spec.ts`. Retained named criteria:
+  - `should reject with 400 VALIDATION_ERROR when the query parameter is missing`
+  - `should return an empty list without querying the database when the query is empty or only spaces`
+  - `should not return MONEDA instruments when the query matches ARS`
+  - `should rank an exact ticker match first, then ticker prefix, then name prefix, then substring when several instruments match`
+  - `should match ticker and name ignoring case when the query mixes upper and lower case`
+  - `should return an empty list when the query is only a LIKE wildcard such as % or _`
+- **Additional boundary evidence:** the HTTP file rejects NUL, 101-character input and an unknown query parameter, and accepts exactly 100 characters.
+- **Dependencies:** T3, T4.
 
-## Cut list (in order: the top one is cut first)
+### T11 · POST /orders/:id/cancel
+- **Acceptance:** lock before loading the owned order; NEW becomes CANCELLED with an app-clock cancellation time; repeated CANCELLED returns 200 unchanged; FILLED/REJECTED gives 409; missing/another user's gives 404. Release either cash or share reservations without another balance update. Log after the successful UoW returns.
+- **Source:** `src/orders/application/use-cases/cancel-order.use-case.ts`, `src/orders/domain/entities/order.entity.ts`, `src/orders/infrastructure/http/orders.controller.ts`.
+- **Evidence:** `test/cancel-order.e2e-spec.ts` covers all these state/ownership cases and both reservation types. Retained concurrent criterion: `should fill the buy or reject it with INSUFFICIENT_FUNDS, consistent with the final cash, when a cancel of a NEW LIMIT buy and a MARKET buy run concurrently`.
+- **Direct lock evidence:** `should wait for the ledger lock before cancelling` holds the advisory lock in a separate connection, observes a waiting cancellation with its order still NEW, then releases the lock and expects CANCELLED.
+- **Proof boundary:** the older cancel/buy race checks valid final outcomes rather than lock acquisition by itself; the direct lock-wait test and T14 integration tests provide complementary assertions. The file also checks leading-zero IDs and an unused text/plain cancel body.
+- **Dependency:** T6.
 
-| # | Task | If it does not fit |
-|---|-------|-------------|
-| C1 | Idempotency with `idempotency_requests` (D-27) | Design in the README |
-| C2 | REST Client collection (`.http`) | `curl` examples in the README |
-| C3 | Cursor pagination in search (D-24) | Mentioned in the README |
-| C4 | Index measurement (D-14) | Mentioned in the README |
+### T12 · Idempotent POST /orders
+- **Acceptance:** optional UUID key, lookup after lock and before repricing, same-user/key/input replay with Idempotent-Replayed, changed input 422, and atomic order/response persistence. Replay must return the original result after cancellation or changed funds; invalid requests must not consume the key. Idempotency is included in the delivery; clients may omit the key.
+- **Source:** `src/orders/application/use-cases/send-order.use-case.ts`, `src/orders/infrastructure/persistence/prisma-idempotency.repository.ts`, `prisma/migrations/20261102000000_idempotency_requests/migration.sql`.
+- **Evidence:** `test/idempotency.e2e-spec.ts`, `test/idempotency-rollback.e2e-spec.ts`. The latter retains `should roll back the order and the idempotent response when saving the response fails`; retry/concurrent-key tests assert a single order and the stored response. A changed-price replay also returns 422; first/replayed responses have no Location header.
+- **Dependencies:** T6 and the integrated T11 lifecycle.
 
-## Open question
+### T10 · Delivery README
+- **Acceptance:** runnable local setup, seeded response, API examples/Postman, explicit functional test command, concise architecture tradeoff, observable assumptions, seed anomaly and operational limits. Detailed contract/decisions live in SPEC rather than a duplicate README table.
+- **Source:** `README.md`, `cocos-api.postman_collection.json`.
+- **Evidence:** documentation-only structural checks: diff whitespace, relative links/anchors, JSON parsing, Bash syntax, referenced IDs/paths/test names and cross-document source readback. Runtime commands remain instructions to run, not green results from this pass.
+- **Dependencies:** integrated T6, T8, T9, T11 and T12.
 
-- T5 and T7 compute the same holding and the same cash from `orders`. Where does that shared calculation live?
+## Original cut candidates and actual disposition
+
+| ID | Original candidate | Current disposition |
+|----|--------------------|---------------------|
+| C1 | Idempotency | Delivered as mandatory T12; header optional. No longer a cut. |
+| C2 | REST Client collection | Replaced by the supplied Postman collection, plus README curl examples. |
+| C3 | Cursor pagination | Not built; search is unpaginated. |
+| C4 | Index measurement | A development-session experiment is recorded; scripts/raw outputs are not delivered and were not rerun here. See SPEC Measurement boundary for limitations. |
+
+## Verification and remaining boundaries
+
+For current runtime proof, run `npm test`, `npm run test:e2e`, `npm run lint`, `npm run typecheck` and `npm run build`; the focused order command is in the README. Test presence above is source evidence, not a historical or fresh passing count.
+
+The shared ledger calculation belongs to T13/D-32. Search pagination, automatic LIMIT execution, a complete historical audit trail, a global portfolio snapshot and production throughput guarantees are not claimed. Historical development measurements do not establish POST or contention capacity.
