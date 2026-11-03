@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import type { Prisma, Order as OrderRecord } from '@/generated/prisma/client';
 import { Order, type OrderSide } from '@/orders/domain/entities/order.entity';
+import { LedgerBusyException } from '@/orders/domain/exceptions/ledger-busy.exception';
 import { OrderNotFoundException } from '@/orders/domain/exceptions/order-not-found.exception';
 import type {
   FindByIdForUserParams,
@@ -14,10 +15,13 @@ import type {
   LedgerStatus,
 } from '@/orders/domain/services/summarize-ledger.service';
 import { assertTransactionActive } from '@/shared/infrastructure/transactions/assert-transaction-active';
+import { isLockTimeout } from '@/shared/infrastructure/transactions/is-lock-timeout';
 import type { PrismaTransactionHost } from '@/shared/infrastructure/transactions/prisma-transaction-host';
 
 // Namespace of the per-user advisory lock: the first key of pg_advisory_xact_lock(namespace, userId).
 const LEDGER_LOCK_NAMESPACE = 1;
+// Longest a request waits for another request of the same user, so it cannot hold a pool connection for ever.
+const LEDGER_LOCK_TIMEOUT_MS = 2000;
 
 @Injectable()
 export class PrismaOrderRepository implements OrderRepository {
@@ -28,7 +32,14 @@ export class PrismaOrderRepository implements OrderRepository {
   public async lockLedger(userId: number): Promise<void> {
     assertTransactionActive(this.txHost);
     await this.txHost.tx.$executeRaw`
-      SELECT pg_advisory_xact_lock(${LEDGER_LOCK_NAMESPACE}::int, ${userId}::int)`;
+      SELECT set_config('lock_timeout', ${`${LEDGER_LOCK_TIMEOUT_MS}ms`}, true)`;
+    try {
+      await this.txHost.tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(${LEDGER_LOCK_NAMESPACE}::int, ${userId}::int)`;
+    } catch (error) {
+      if (isLockTimeout(error)) throw new LedgerBusyException();
+      throw error;
+    }
   }
 
   public async searchByUser(

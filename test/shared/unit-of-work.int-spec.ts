@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import type { PrismaTransactionHost } from '@/shared/infrastructure/transactions/prisma-transaction-host';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { LedgerBusyException } from '@/orders/domain/exceptions/ledger-busy.exception';
 import { OrdersModule } from '@/orders/orders.module';
 import {
   ORDER_REPOSITORY,
@@ -152,5 +153,40 @@ describe('UnitOfWork (integration)', () => {
     await expect(orders.lockLedger(1)).rejects.toThrow(
       NoActiveTransactionError,
     );
+  });
+
+  it('should reject with LedgerBusyException when another transaction holds the user lock longer than the lock timeout', async () => {
+    const holdA = deferred();
+    const aLocked = deferred();
+
+    const a = uow.run(async () => {
+      await orders.lockLedger(1);
+      aLocked.release();
+      await holdA.released;
+    });
+    await aLocked.released;
+    const b = uow.run(() => orders.lockLedger(1));
+
+    await expect(b).rejects.toThrow(LedgerBusyException);
+    holdA.release();
+    await a;
+  });
+
+  it('should not carry lock_timeout to the next transaction when it runs on a reused connection', async () => {
+    const POOL_SIZE_AND_MORE = 12;
+    await uow.run(() => orders.lockLedger(1));
+
+    const settings = await Promise.all(
+      Array.from({ length: POOL_SIZE_AND_MORE }, () =>
+        uow.run(async () => {
+          const rows = await txHost.tx.$queryRaw<
+            { lock_timeout: string }[]
+          >`SHOW lock_timeout`;
+          return rows[0]?.lock_timeout;
+        }),
+      ),
+    );
+
+    expect(settings).toEqual(Array(POOL_SIZE_AND_MORE).fill('0'));
   });
 });
