@@ -83,6 +83,16 @@ describe('POST /orders with Idempotency-Key', () => {
     expect(response.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
   });
 
+  it('should return 422 when the same key comes with a different price', async () => {
+    const key = randomUUID();
+    await sendOrder(LIMIT_BUY, key).expect(201);
+
+    const response = await sendOrder({ ...LIMIT_BUY, price: '101.00' }, key);
+
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+  });
+
   it('should return the original rejection on retry after a cancel frees the cash', async () => {
     const key = randomUUID();
     const reserving = await sendOrder(LARGE_LIMIT_BUY).expect(201);

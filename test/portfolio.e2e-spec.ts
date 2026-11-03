@@ -71,6 +71,42 @@ describe('GET /portfolio', () => {
     });
   });
 
+  it('should return an empty portfolio when the user has no orders', async () => {
+    const USER_WITHOUT_ORDERS = '2';
+
+    const response = await request(app.getHttpServer())
+      .get('/portfolio')
+      .set('X-User-Id', USER_WITHOUT_ORDERS)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      totalValue: '0.00',
+      availableCash: '0.00',
+      positions: [],
+    });
+  });
+
+  it('should include a just-placed order in the portfolio as the newest entry', async () => {
+    const PAMP_ID = 47;
+    await request(app.getHttpServer())
+      .post('/orders')
+      .set('X-User-Id', SEED_USER_ID)
+      .send({ instrumentId: PAMP_ID, side: 'BUY', type: 'MARKET', size: 10 })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .get('/portfolio')
+      .set('X-User-Id', SEED_USER_ID)
+      .expect(200);
+
+    const pamp = response.body.positions.find(
+      (position: { instrumentId: number }) => position.instrumentId === PAMP_ID,
+    );
+    expect(pamp.quantity).toBe(50);
+    expect(pamp.averagePrice).toBe('929.17');
+    expect(response.body.availableCash).toBe('618241.50');
+  });
+
   it('should return null market value and leave the position out of the total when it has no price', async () => {
     const client = new Client({ connectionString: inject('databaseUrl') });
     await client.connect();
