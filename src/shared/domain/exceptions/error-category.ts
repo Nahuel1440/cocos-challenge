@@ -3,4 +3,5 @@ export enum ErrorCategory {
   NotFound = 'NotFound',
   Conflict = 'Conflict',
   Unprocessable = 'Unprocessable',
+  Unavailable = 'Unavailable',
 }

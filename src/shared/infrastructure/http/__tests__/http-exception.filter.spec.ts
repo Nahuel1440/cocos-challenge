@@ -5,6 +5,7 @@ import {
   type ArgumentsHost,
 } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@/generated/prisma/client';
 import {
   DomainException,
   ErrorCategory,
@@ -21,12 +22,13 @@ class StubException extends DomainException {
 }
 
 const render = (error: unknown) => {
-  const log = { error: vi.fn() };
+  const log = { error: vi.fn(), warn: vi.fn() };
+  const setHeader = vi.fn();
   const json = vi.fn();
   const status = vi.fn().mockReturnValue({ json });
   const host = {
     switchToHttp: () => ({
-      getResponse: () => ({ status }),
+      getResponse: () => ({ status, setHeader }),
       getRequest: () => ({ id: 'req-1', log }),
     }),
   } as unknown as ArgumentsHost;
@@ -37,6 +39,7 @@ const render = (error: unknown) => {
     status: status.mock.calls[0]?.[0],
     body: json.mock.calls[0]?.[0],
     log,
+    setHeader,
   };
 };
 
@@ -160,5 +163,49 @@ describe('HttpExceptionFilter', () => {
       expect.objectContaining({ err: error }),
       expect.any(String),
     );
+  });
+
+  it('should answer 503 with Retry-After when the exception is a DomainException of category Unavailable', () => {
+    const { status, body, setHeader } = render(
+      new StubException(ErrorCategory.Unavailable),
+    );
+
+    expect(status).toBe(503);
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '1');
+    expect(body).toEqual({
+      statusCode: 503,
+      code: 'STUB',
+      message: 'stub message',
+      requestId: 'req-1',
+    });
+  });
+
+  it('should answer 503 SERVICE_BUSY when the error is a Prisma P2028', () => {
+    const error = new Prisma.PrismaClientKnownRequestError(
+      'Transaction API error: Unable to start a transaction in the given time.',
+      { code: 'P2028', clientVersion: 'test' },
+    );
+
+    const { status, body, setHeader, log } = render(error);
+
+    expect(status).toBe(503);
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '1');
+    expect(body).toEqual({
+      statusCode: 503,
+      code: 'SERVICE_BUSY',
+      message: 'The service is busy. Retry shortly',
+      requestId: 'req-1',
+    });
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('should answer 503 SERVICE_BUSY when the pg pool times out connecting', () => {
+    const error = new Error('timeout exceeded when trying to connect');
+
+    const { status, body, setHeader } = render(error);
+
+    expect(status).toBe(503);
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '1');
+    expect(body.code).toBe('SERVICE_BUSY');
   });
 });
