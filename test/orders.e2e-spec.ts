@@ -1,6 +1,15 @@
 import type { INestApplication } from '@nestjs/common';
+import { Client } from 'pg';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import {
   ORDER_REPOSITORY,
   type OrderRepository,
@@ -58,6 +67,34 @@ describe('POST /orders', () => {
 
     expect(response.body.status).toBe('FILLED');
     expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+  });
+
+  it('should reject with 400 VALIDATION_ERROR when the body has an unknown field', async () => {
+    const client = new Client({ connectionString: inject('databaseUrl') });
+    await client.connect();
+    const countOrders = async () => {
+      const { rows } = await client.query<{ total: number }>(
+        'SELECT count(*)::int AS total FROM public.orders',
+      );
+      return rows[0]!.total;
+    };
+    const ordersBefore = await countOrders();
+
+    const response = await sendOrder({
+      type: 'MARKET',
+      size: 1,
+      limit_price: '1.00',
+    } as OrderBody).expect(400);
+    const ordersAfter = await countOrders();
+    await client.end();
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('limit_price'),
+      requestId: response.headers['x-request-id'],
+    });
+    expect(ordersAfter).toBe(ordersBefore);
   });
 
   it('should return 400 VALIDATION_ERROR when both size and amount are sent', async () => {

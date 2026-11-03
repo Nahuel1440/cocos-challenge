@@ -99,6 +99,7 @@ Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `si
 
 More on the order body:
 
+- A field the API does not know, in the body or in the query string, is a `400 VALIDATION_ERROR`; it is not ignored.
 - `instrumentId` is an integer from 1 to 2147483647. It must exist and not be `MONEDA` (a currency), else `400 VALIDATION_ERROR`.
 - `size` is an integer from 1 to 2147483647. `amount` and `price` are decimal strings from `0.01` to `99999999.99`.
 - A LIMIT order with `amount` must buy at least one share at its `price`, else `400`.

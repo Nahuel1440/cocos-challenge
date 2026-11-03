@@ -42,7 +42,11 @@ const env = process.env.NODE_ENV;
     { provide: APP_GUARD, useClass: UserIdGuard },
     {
       provide: APP_PIPE,
-      useValue: new ValidationPipe({ transform: true, whitelist: true }),
+      useValue: new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
     },
   ],
 })
