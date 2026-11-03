@@ -3,7 +3,7 @@ import { SearchInstrumentsUseCase } from '@/instruments/application/use-cases/se
 import type { InstrumentRepository } from '@/instruments/domain/ports/instrument.repository';
 
 const mockInstruments: Mocked<InstrumentRepository> = {
-  searchByText: vi.fn(),
+  searchTradableByText: vi.fn(),
 };
 const useCase = new SearchInstrumentsUseCase(mockInstruments);
 
@@ -20,6 +20,6 @@ describe('run', () => {
 
       expect(result).toEqual([]);
     }
-    expect(mockInstruments.searchByText).not.toHaveBeenCalled();
+    expect(mockInstruments.searchTradableByText).not.toHaveBeenCalled();
   });
 });
