@@ -11,8 +11,6 @@ import { buildPinoHttpOptions } from '@/shared/infrastructure/http/pino-http-opt
 import { UserIdGuard } from '@/shared/infrastructure/http/user-id.guard';
 import { UsersModule } from '@/shared/infrastructure/users/users.module';
 
-const env = process.env.NODE_ENV;
-
 @Module({
   imports: [
     PrismaModule,
@@ -21,7 +19,11 @@ const env = process.env.NODE_ENV;
     OrdersModule,
     InstrumentsModule,
     PortfolioModule,
-    LoggerModule.forRoot({ pinoHttp: buildPinoHttpOptions(env) }),
+    LoggerModule.forRootAsync({
+      useFactory: () => ({
+        pinoHttp: buildPinoHttpOptions(process.env.NODE_ENV),
+      }),
+    }),
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },

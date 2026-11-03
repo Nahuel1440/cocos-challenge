@@ -44,4 +44,19 @@ describe('request logging', () => {
     expect(line).not.toContain(SET_COOKIE);
     expect(line).toContain('"x-user-id":"1"');
   });
+
+  it('should not use a transport when NODE_ENV is unset', () => {
+    const options = buildPinoHttpOptions(undefined);
+
+    expect(options.transport).toBeUndefined();
+  });
+
+  it('should use pino-pretty only when NODE_ENV is development', () => {
+    const PRETTY = { target: 'pino-pretty' };
+
+    expect(buildPinoHttpOptions('development').transport).toEqual(PRETTY);
+    expect(buildPinoHttpOptions('production').transport).toBeUndefined();
+    expect(buildPinoHttpOptions('test').transport).toBeUndefined();
+    expect(buildPinoHttpOptions(undefined).transport).toBeUndefined();
+  });
 });
