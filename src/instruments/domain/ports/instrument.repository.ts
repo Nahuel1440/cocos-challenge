@@ -9,6 +9,7 @@ export interface InstrumentSummary {
 
 export interface SearchTradableByTextParams {
   text: string;
+  limit: number;
 }
 
 export interface InstrumentRepository {

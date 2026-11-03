@@ -1,6 +1,15 @@
 import type { INestApplication } from '@nestjs/common';
+import { Client } from 'pg';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import { createTestApp } from './support/create-test-app';
 import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
@@ -31,6 +40,21 @@ describe('GET /instruments', () => {
     return response.body.instruments.map(
       (instrument: { ticker: string }) => instrument.ticker,
     );
+  }
+
+  async function insertInstruments(tickers: string[]): Promise<void> {
+    const client = new Client({ connectionString: inject('databaseUrl') });
+    await client.connect();
+    try {
+      for (const ticker of tickers) {
+        await client.query(
+          "INSERT INTO instruments (ticker, name, type) VALUES ($1, $1, 'ACCIONES')",
+          [ticker],
+        );
+      }
+    } finally {
+      await client.end();
+    }
   }
 
   it('should reject with 400 VALIDATION_ERROR when the query parameter is missing', async () => {
@@ -145,5 +169,20 @@ describe('GET /instruments', () => {
 
     expect(percent).toEqual([]);
     expect(underscore).toEqual([]);
+  });
+
+  it('should return at most 50 instruments when more match the query', async () => {
+    const MAX_RESULTS = 50;
+    const BEST_MATCH = 'ZQX';
+    const PREFIX_MATCHES = Array.from(
+      { length: MAX_RESULTS + 10 },
+      (_, index) => `ZQX${String(index).padStart(3, '0')}`,
+    );
+    await insertInstruments([...PREFIX_MATCHES, BEST_MATCH]);
+
+    const tickers = await searchTickers('zqx');
+
+    expect(tickers).toHaveLength(MAX_RESULTS);
+    expect(tickers[0]).toBe(BEST_MATCH);
   });
 });

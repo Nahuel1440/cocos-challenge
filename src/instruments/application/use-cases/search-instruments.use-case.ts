@@ -5,6 +5,8 @@ import {
   type InstrumentSummary,
 } from '@/instruments/domain/ports/instrument.repository';
 
+const MAX_RESULTS = 50;
+
 export interface SearchInstrumentsInput {
   query: string;
 }
@@ -26,6 +28,9 @@ export class SearchInstrumentsUseCase {
       return [];
     }
 
-    return this.instruments.searchTradableByText({ text });
+    return this.instruments.searchTradableByText({
+      text,
+      limit: MAX_RESULTS,
+    });
   }
 }

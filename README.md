@@ -61,7 +61,7 @@ Every route requires `X-User-Id`; the seed contains users 1–4. Authentication 
 | Endpoint | Behavior |
 |----------|----------|
 | `GET /portfolio` | Total value, available cash, and positions with quantity, market value, average price and total return. |
-| `GET /instruments?query=pam` | Case-insensitive ticker/name search, excluding currencies. Missing `query` is `400`; empty text returns an empty list. Input is limited to 100 characters before trimming, with no NUL character. |
+| `GET /instruments?query=pam` | Case-insensitive ticker/name search, excluding currencies. Returns at most 50 results, best match first. Missing `query` is `400`; empty text returns an empty list. Input is limited to 100 characters before trimming, with no NUL character. |
 | `POST /orders` | Submit a BUY/SELL, MARKET/LIMIT order by shares or ARS amount. |
 | `POST /orders/:id/cancel` | Cancel a `NEW` order. Repeating a successful cancel returns `200` unchanged; other final states return `409`. Missing or another user's order returns `404`. |
 
@@ -153,7 +153,7 @@ Order submission and cancellation use a transaction with a per-user advisory loc
 
 ## Known limitations
 
-- Each ledger read replays the user's FILLED and NEW orders, so cost grows with account history. Search has no pagination.
+- Each ledger read replays the user's FILLED and NEW orders, so cost grows with account history. Search returns at most 50 results, with no pagination, and a client cannot tell the result was cut.
 - Portfolio cash and reservations come from one orders query; quotes are read separately. There is no atomic snapshot across ledger and prices.
 - Heavy same-user concurrency queues behind the advisory lock while holding database connections. All waits are set in the code: pool of 10 connections, 2 seconds for a connection (`connectionTimeoutMillis` and Prisma `maxWait`), 2 seconds for the per-user lock, 5 seconds per transaction. Measured by hand on one machine, with 20,000 orders for one user (about 145 ms per order); the load script is not in the repo, so treat the numbers as indicative:
   - A burst of 150 parallel orders from that user: before, 42 `201` and 108 `500`, in 7.0 s; now, 34 `201` and 116 `503`, in 5.9 s. A second user's `GET /portfolio` during the burst: before, `200` after 5.6 s; now, `503` after 2.2 s. Other users fail sooner instead of waiting; they are not served better.

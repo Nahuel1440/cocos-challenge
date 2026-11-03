@@ -13,7 +13,7 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
   public async searchTradableByText(
     params: SearchTradableByTextParams,
   ): Promise<InstrumentSummary[]> {
-    const { text } = params;
+    const { text, limit } = params;
     const escaped = text.replace(/[\\%_]/g, '\\$&');
     const prefix = `${escaped}%`;
     const contains = `%${escaped}%`;
@@ -31,6 +31,7 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
           ELSE 4
         END,
         ticker ASC,
-        id ASC`;
+        id ASC
+      LIMIT ${limit}`;
   }
 }
