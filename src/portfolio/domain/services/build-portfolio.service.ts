@@ -39,7 +39,7 @@ export class BuildPortfolioService {
       const marketValue = price?.times(holding.quantity);
       const { averagePrice } = holding;
       const hasReturn = price !== undefined && averagePrice !== null;
-      if (marketValue) totalValue = totalValue.plus(marketValue);
+      if (marketValue !== undefined) totalValue = totalValue.plus(marketValue);
 
       positions.push({
         instrumentId,

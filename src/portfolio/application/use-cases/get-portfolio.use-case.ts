@@ -5,33 +5,26 @@ import {
   type OrderRepository,
 } from '@/orders/domain/ports/order.repository';
 import {
+  LEDGER_STATUSES,
   SummarizeLedgerService,
-  type LedgerStatus,
 } from '@/orders/domain/services/summarize-ledger.service';
 import {
   INSTRUMENT_QUOTE_REPOSITORY,
   type InstrumentQuote,
   type InstrumentQuoteRepository,
 } from '@/portfolio/domain/ports/instrument-quote.repository';
-import { BuildPortfolioService } from '@/portfolio/domain/services/build-portfolio.service';
 import {
-  UNIT_OF_WORK,
-  type UnitOfWork,
-  type UnitOfWorkOptions,
-} from '@/shared/application/unit-of-work.port';
+  BuildPortfolioService,
+  type PortfolioPosition,
+} from '@/portfolio/domain/services/build-portfolio.service';
 
 export interface GetPortfolioInput {
   userId: number;
 }
 
-export interface PositionView {
-  instrumentId: number;
+export interface PositionView extends PortfolioPosition {
   ticker: string;
   name: string;
-  quantity: number;
-  averagePrice: Decimal | null;
-  marketValue: Decimal | null;
-  totalReturnPercentage: Decimal | null;
 }
 
 export interface PortfolioView {
@@ -40,16 +33,9 @@ export interface PortfolioView {
   positions: PositionView[];
 }
 
-const LEDGER_STATUSES: LedgerStatus[] = ['FILLED', 'NEW'];
-const SNAPSHOT_READ: UnitOfWorkOptions = {
-  isolation: 'repeatable-read',
-  readOnly: true,
-};
-
 @Injectable()
 export class GetPortfolioUseCase {
   constructor(
-    @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(ORDER_REPOSITORY) private readonly orders: OrderRepository,
     @Inject(INSTRUMENT_QUOTE_REPOSITORY)
     private readonly quotes: InstrumentQuoteRepository,
@@ -57,37 +43,37 @@ export class GetPortfolioUseCase {
     private readonly buildPortfolio: BuildPortfolioService,
   ) {}
 
-  public run(input: GetPortfolioInput): Promise<PortfolioView> {
+  public async run(input: GetPortfolioInput): Promise<PortfolioView> {
     const { userId } = input;
 
-    return this.uow.run(async () => {
-      const entries = await this.orders.searchByUser({
-        userId,
-        statuses: LEDGER_STATUSES,
-      });
-      const summary = this.summarizeLedger.run(entries);
-      const quotes = await this.quotes.searchByInstrumentIds([
-        ...summary.holdings.keys(),
-      ]);
-      const quoteById = new Map(
-        quotes.map((quote) => [quote.instrumentId, quote]),
-      );
-      const portfolio = this.buildPortfolio.run({
-        summary,
-        latestPrices: this.latestPrices(quotes),
-      });
+    const entries = await this.orders.searchByUser({
+      userId,
+      statuses: LEDGER_STATUSES,
+    });
+    const summary = this.summarizeLedger.run(entries);
 
-      return {
-        totalValue: portfolio.totalValue,
-        availableCash: summary.availableCash,
-        positions: portfolio.positions.map((position) => {
-          // Every held instrument id was sent to the quote query, and orders.instrumentid has a foreign key to instruments.
-          const { ticker, name } = quoteById.get(position.instrumentId)!;
+    const quotes = await this.quotes.searchByInstrumentIds([
+      ...summary.holdings.keys(),
+    ]);
+    const portfolio = this.buildPortfolio.run({
+      summary,
+      latestPrices: this.latestPrices(quotes),
+    });
 
-          return { ...position, ticker, name };
-        }),
-      };
-    }, SNAPSHOT_READ);
+    const quoteById = new Map(
+      quotes.map((quote) => [quote.instrumentId, quote]),
+    );
+
+    return {
+      totalValue: portfolio.totalValue,
+      availableCash: summary.availableCash,
+      positions: portfolio.positions.map((position) => {
+        // Every held instrument id was sent to the quote query, and orders.instrumentid has a foreign key to instruments.
+        const { ticker, name } = quoteById.get(position.instrumentId)!;
+
+        return { ...position, ticker, name };
+      }),
+    };
   }
 
   private latestPrices(quotes: InstrumentQuote[]): Map<number, Decimal> {

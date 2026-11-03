@@ -1,12 +1,20 @@
 import type { INestApplication } from '@nestjs/common';
+import { Client } from 'pg';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import { createTestApp } from './support/create-test-app';
 import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
 
 const SEED_USER_ID = '1';
-const BMA_ID = 31;
 
 describe('GET /portfolio', () => {
   let app: INestApplication;
@@ -63,23 +71,28 @@ describe('GET /portfolio', () => {
     });
   });
 
-  it('should show the negative seed holding as is with a null return', async () => {
+  it('should return null market value and leave the position out of the total when it has no price', async () => {
+    const client = new Client({ connectionString: inject('databaseUrl') });
+    await client.connect();
+    try {
+      await client.query(
+        'DELETE FROM public.marketdata WHERE instrumentid = 54',
+      );
+    } finally {
+      await client.end();
+    }
+
     const response = await request(app.getHttpServer())
       .get('/portfolio')
       .set('X-User-Id', SEED_USER_ID)
       .expect(200);
 
-    const holding = response.body.positions.find(
-      (position: { instrumentId: number }) => position.instrumentId === BMA_ID,
+    const unpriced = response.body.positions.find(
+      (position: { instrumentId: number }) => position.instrumentId === 54,
     );
-    expect(holding).toEqual({
-      instrumentId: 31,
-      ticker: 'BMA',
-      name: 'Banco Macro S.A.',
-      quantity: -10,
-      marketValue: '-15028.00',
-      averagePrice: null,
-      totalReturnPercentage: null,
-    });
+    expect(unpriced.quantity).toBe(500);
+    expect(unpriced.marketValue).toBeNull();
+    expect(unpriced.totalReturnPercentage).toBeNull();
+    expect(response.body.totalValue).toBe('775006.00');
   });
 });

@@ -12,6 +12,8 @@ import { truncateAllTables } from './support/truncate-all-tables';
 
 const USER_WITH_CASH = '1';
 const INSTRUMENT_ID = 47;
+const SHARES_INSTRUMENT_ID = 54;
+const SHARES_HELD = 500;
 
 interface OrderBody {
   type: string;
@@ -337,5 +339,77 @@ describe('POST /orders', () => {
     expect(response.body.status).toBe('REJECTED');
     expect(response.body.rejectionReason).toBe('INSUFFICIENT_FUNDS');
     expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+  });
+
+  const storedSize = async (orderId: number) => {
+    const order = await app
+      .get<OrderRepository>(ORDER_REPOSITORY)
+      .findByIdForUser({ orderId, userId: Number(USER_WITH_CASH) });
+    return order.toPrimitives().size;
+  };
+
+  it('should return 201 FILLED with the whole shares when a MARKET BUY uses an amount', async () => {
+    const AMOUNT = '10000.00';
+    const PRICE = '925.85';
+    const EXPECTED_SHARES = 10; // floor(10000.00 / 925.85) = floor(10.80)
+
+    const response = await sendOrder({ type: 'MARKET', amount: AMOUNT });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('FILLED');
+    expect(response.body.size).toBe(EXPECTED_SHARES);
+    expect(response.body.price).toBe(PRICE);
+    expect(await storedSize(response.body.id)).toBe(EXPECTED_SHARES);
+  });
+
+  it('should return 201 NEW with the whole shares when a LIMIT BUY uses an amount', async () => {
+    const AMOUNT = '1000.00';
+    const PRICE = '300.00';
+    const EXPECTED_SHARES = 3; // floor(1000.00 / 300.00) = floor(3.33)
+
+    const response = await sendOrder({
+      type: 'LIMIT',
+      amount: AMOUNT,
+      price: PRICE,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('NEW');
+    expect(response.body.size).toBe(EXPECTED_SHARES);
+    expect(response.body.price).toBe(PRICE);
+    expect(await storedSize(response.body.id)).toBe(EXPECTED_SHARES);
+  });
+
+  it('should return 201 FILLED when a MARKET SELL has enough shares', async () => {
+    const SIZE_SOLD = SHARES_HELD - 1;
+    const SHARES_PRICE = '229.50';
+
+    const response = await sendOrder({
+      type: 'MARKET',
+      side: 'SELL',
+      instrumentId: SHARES_INSTRUMENT_ID,
+      size: SIZE_SOLD,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('FILLED');
+    expect(response.body.size).toBe(SIZE_SOLD);
+    expect(response.body.price).toBe(SHARES_PRICE);
+  });
+
+  it('should return 201 REJECTED INSUFFICIENT_SHARES when a MARKET SELL exceeds the shares held', async () => {
+    const SIZE_SOLD = SHARES_HELD + 1;
+
+    const response = await sendOrder({
+      type: 'MARKET',
+      side: 'SELL',
+      instrumentId: SHARES_INSTRUMENT_ID,
+      size: SIZE_SOLD,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('REJECTED');
+    expect(response.body.rejectionReason).toBe('INSUFFICIENT_SHARES');
+    expect(response.body.size).toBe(SIZE_SOLD);
   });
 });

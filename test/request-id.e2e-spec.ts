@@ -83,7 +83,7 @@ describe('request id', () => {
     expect(body.requestId).toBe(requestId);
   });
 
-  it('should keep the status of a body parser error and render the D-29 body when the request body is too large', async () => {
+  it('should keep the status of a body parser error and render the error body when the request body is too large', async () => {
     const response = await fetch(`${baseUrl}/boom/echo`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-User-Id': '1' },

@@ -42,7 +42,7 @@ async function snapshotSeed(client: Client): Promise<void> {
   }
 }
 
-// One container per run: Postgres 17, the same image as docker-compose.yml (D-19).
+// One container per run: Postgres 17, the same image as docker-compose.yml.
 export default async function setup(project: TestProject) {
   const root = project.config.root;
   const container = await new PostgreSqlContainer('postgres:17')
