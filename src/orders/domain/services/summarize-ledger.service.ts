@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 
 export type LedgerSide = 'BUY' | 'SELL' | 'CASH_IN' | 'CASH_OUT';
 export type LedgerStatus = 'FILLED' | 'NEW';
+export const LEDGER_STATUSES: LedgerStatus[] = ['FILLED', 'NEW'];
 
 export interface LedgerEntry {
   id: number;
