@@ -7,6 +7,7 @@ import {
   waitForLedgerLockWaiters,
 } from './support/ledger-lock';
 import { reloadSeed } from './support/reload-seed';
+import { waitForRefusal } from './support/wait-for-refusal';
 import { truncateAllTables } from './support/truncate-all-tables';
 
 const OWNER = 1;
@@ -17,7 +18,7 @@ const LIMIT_BUY = {
   size: 1,
   price: '100.00',
 };
-const SHUTDOWN_HEAD_START_MS = 200;
+const SHUTDOWN_REFUSAL_LIMIT_MS = 5000;
 const SHUTDOWN_TEST_TIMEOUT_MS = 20000;
 
 describe('graceful shutdown', () => {
@@ -47,7 +48,8 @@ describe('graceful shutdown', () => {
         LEDGER_LOCK_NAMESPACE,
         OWNER,
       ]);
-      const inFlight = fetch(`${await app.getUrl()}/orders`, {
+      const url = await app.getUrl();
+      const inFlight = fetch(`${url}/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -59,9 +61,8 @@ describe('graceful shutdown', () => {
       expect(waiters).toBe(1);
 
       const closing = app.close();
-      await new Promise((resolve) =>
-        setTimeout(resolve, SHUTDOWN_HEAD_START_MS),
-      );
+      const refusing = await waitForRefusal(url, SHUTDOWN_REFUSAL_LIMIT_MS);
+      expect(refusing).toBe(true);
       await holder.query('COMMIT');
 
       const response = await inFlight;
