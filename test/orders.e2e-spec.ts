@@ -144,6 +144,36 @@ describe('POST /orders', () => {
     });
   });
 
+  it('should return 400 MISSING_USER_ID before 415 when text/plain comes without X-User-Id', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Content-Type', 'text/plain')
+      .send('not json')
+      .expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'MISSING_USER_ID',
+      message: expect.any(String),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
+  it('should reject with 415 when the JSON charset is not supported, even without X-User-Id', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Content-Type', 'application/json; charset=latin1')
+      .send('{}')
+      .expect(415);
+
+    expect(response.body).toEqual({
+      statusCode: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: expect.any(String),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
   it('should return 400 VALIDATION_ERROR when both size and amount are sent', async () => {
     const response = await request(app.getHttpServer())
       .post('/orders')
