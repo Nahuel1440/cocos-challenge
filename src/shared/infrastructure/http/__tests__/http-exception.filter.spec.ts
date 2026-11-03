@@ -211,6 +211,16 @@ describe('HttpExceptionFilter', () => {
     expect(body.code).toBe('SERVICE_BUSY');
   });
 
+  it('should answer 503 SERVICE_BUSY when the pg pool cannot open a new connection in time', () => {
+    const error = new Error('Connection terminated due to connection timeout');
+
+    const { status, body, setHeader } = render(error);
+
+    expect(status).toBe(503);
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '1');
+    expect(body.code).toBe('SERVICE_BUSY');
+  });
+
   it('should keep a 500 INTERNAL_ERROR when the Prisma error is not a P2028', () => {
     const error = new Prisma.PrismaClientKnownRequestError(
       'Unique constraint failed',
