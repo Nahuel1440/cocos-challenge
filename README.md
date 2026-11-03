@@ -159,4 +159,4 @@ Order submission and cancellation use a transaction with a per-user advisory loc
 
 ## Further documentation
 
-See the [design specification](docs/SPEC.md) for the API contract and design decisions.
+See the [design specification](docs/SPEC.md) for the API contract and design decisions, and [AI usage](AI_USAGE.md) for how I approached the challenge and worked with AI.
