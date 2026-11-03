@@ -154,7 +154,7 @@ They have unit tests that run without a database. The HTTP and Postgres behaviou
 | Bad request vs rejected order | A request that can never succeed is a `400` and is not stored. A valid request that cannot run now (no funds, no shares, no price, amount below one share on MARKET) is stored as `REJECTED` (D-8, D-20, D-31). |
 | Cancel | `NEW` becomes `CANCELLED`. Cancelling a `CANCELLED` order returns `200` unchanged. A `FILLED` or `REJECTED` order gives `409`. Missing or another user's order gives `404` (D-18). |
 | Search | `ILIKE` on ticker and name, wildcards escaped, `MONEDA` excluded, ranked: exact ticker, ticker prefix, name prefix, other. Missing `query` is `400`; an empty one is `200` with an empty list (D-36, D-37, D-38). No pagination (D-24). |
-| Logs and errors | One request id per request, in logs, the `X-Request-Id` header and the error body. A `500` is logged with its stack and returns none. Each order outcome logs one line, with no balances (D-29, D-40). |
+| Logs and errors | One request id per request, in logs, the `X-Request-Id` header and the error body. A `500` is logged with its stack and returns none. Each order outcome logs one line, with no balances (D-29, D-40). Request logs redact the `Authorization` and `Cookie` headers, and the API sends no `X-Powered-By` header. |
 
 ### Assumptions
 

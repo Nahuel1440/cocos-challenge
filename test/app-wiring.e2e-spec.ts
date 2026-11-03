@@ -85,4 +85,13 @@ describe('app wiring', () => {
       requestId: response.headers['x-request-id'],
     });
   });
+
+  it('should not send X-Powered-By when any route answers', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/wiring')
+      .set('X-User-Id', '1')
+      .expect(200);
+
+    expect(response.headers['x-powered-by']).toBeUndefined();
+  });
 });
