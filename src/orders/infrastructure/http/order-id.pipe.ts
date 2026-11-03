@@ -8,8 +8,8 @@ import { POSTGRES_INT_MAX } from '@/shared/infrastructure/http/postgres-int-max'
 const DIGITS = /^\d+$/;
 
 @Injectable()
-export class OrderIdPipe implements PipeTransform<string, string> {
-  public transform(value: string): string {
+export class OrderIdPipe implements PipeTransform<string, number> {
+  public transform(value: string): number {
     const id = Number(value);
 
     if (!DIGITS.test(value) || id < 1 || id > POSTGRES_INT_MAX) {
@@ -18,6 +18,6 @@ export class OrderIdPipe implements PipeTransform<string, string> {
       );
     }
 
-    return value;
+    return id;
   }
 }

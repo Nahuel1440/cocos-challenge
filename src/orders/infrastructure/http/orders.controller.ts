@@ -58,12 +58,12 @@ export class OrdersController {
   @Post(':id/cancel')
   @HttpCode(200)
   public async cancel(
-    @Param('id', OrderIdPipe) id: string,
+    @Param('id', OrderIdPipe) id: number,
     @Req() request: AuthenticatedRequest,
   ) {
     const order = await this.cancelOrder.run({
       userId: request.userId,
-      orderId: Number(id),
+      orderId: id,
     });
 
     return order.toPrimitives();
