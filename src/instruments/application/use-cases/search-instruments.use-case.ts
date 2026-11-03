@@ -5,6 +5,8 @@ import {
   type InstrumentSummary,
 } from '@/instruments/domain/ports/instrument.repository';
 
+const MAX_RESULTS = 50;
+
 export interface SearchInstrumentsInput {
   query: string;
 }
@@ -16,7 +18,9 @@ export class SearchInstrumentsUseCase {
     private readonly instruments: InstrumentRepository,
   ) {}
 
-  public async run(input: SearchInstrumentsInput): Promise<InstrumentSummary[]> {
+  public async run(
+    input: SearchInstrumentsInput,
+  ): Promise<InstrumentSummary[]> {
     const { query } = input;
 
     const text = query.trim();
@@ -24,6 +28,9 @@ export class SearchInstrumentsUseCase {
       return [];
     }
 
-    return this.instruments.searchByText({ text });
+    return this.instruments.searchTradableByText({
+      text,
+      limit: MAX_RESULTS,
+    });
   }
 }

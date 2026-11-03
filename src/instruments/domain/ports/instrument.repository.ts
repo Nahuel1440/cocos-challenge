@@ -7,10 +7,14 @@ export interface InstrumentSummary {
   type: string;
 }
 
-export interface SearchByTextParams {
+export interface SearchTradableByTextParams {
   text: string;
+  limit: number;
 }
 
 export interface InstrumentRepository {
-  searchByText(params: SearchByTextParams): Promise<InstrumentSummary[]>;
+  // Excludes currencies. Ranks exact ticker, ticker prefix, name prefix, then substring.
+  searchTradableByText(
+    params: SearchTradableByTextParams,
+  ): Promise<InstrumentSummary[]>;
 }

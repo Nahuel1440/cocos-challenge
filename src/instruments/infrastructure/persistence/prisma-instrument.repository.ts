@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type {
   InstrumentRepository,
   InstrumentSummary,
-  SearchByTextParams,
+  SearchTradableByTextParams,
 } from '@/instruments/domain/ports/instrument.repository';
 import { PrismaService } from '@/shared/infrastructure/prisma/prisma.service';
 
@@ -10,10 +10,10 @@ import { PrismaService } from '@/shared/infrastructure/prisma/prisma.service';
 export class PrismaInstrumentRepository implements InstrumentRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  public async searchByText(
-    params: SearchByTextParams,
+  public async searchTradableByText(
+    params: SearchTradableByTextParams,
   ): Promise<InstrumentSummary[]> {
-    const { text } = params;
+    const { text, limit } = params;
     const escaped = text.replace(/[\\%_]/g, '\\$&');
     const prefix = `${escaped}%`;
     const contains = `%${escaped}%`;
@@ -31,6 +31,7 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
           ELSE 4
         END,
         ticker ASC,
-        id ASC`;
+        id ASC
+      LIMIT ${limit}`;
   }
 }
