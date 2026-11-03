@@ -8,13 +8,17 @@ import {
   Logger,
 } from '@nestjs/common';
 import { DomainException, ErrorCategory } from '@/shared/domain';
+import { isCapacityError } from '@/shared/infrastructure/http/is-capacity-error';
 
 const STATUS_BY_CATEGORY: Record<ErrorCategory, number> = {
   [ErrorCategory.InvalidArgument]: HttpStatus.BAD_REQUEST,
   [ErrorCategory.NotFound]: HttpStatus.NOT_FOUND,
   [ErrorCategory.Conflict]: HttpStatus.CONFLICT,
   [ErrorCategory.Unprocessable]: HttpStatus.UNPROCESSABLE_ENTITY,
+  [ErrorCategory.Unavailable]: HttpStatus.SERVICE_UNAVAILABLE,
 };
+
+const RETRY_AFTER_SECONDS = '1';
 
 interface JsonResponse {
   setHeader(name: string, value: string): void;
@@ -93,6 +97,10 @@ function replyDomainException(
 ): void {
   const { code, message, category } = exception;
   const statusCode = STATUS_BY_CATEGORY[category];
+  if (category === ErrorCategory.Unavailable) {
+    warnUnavailable(reply, message);
+    reply.response.setHeader('Retry-After', RETRY_AFTER_SECONDS);
+  }
   reply.response
     .status(statusCode)
     .json({ statusCode, code, message, requestId: reply.requestId });
@@ -115,6 +123,26 @@ function replyBodyParserError(
     statusCode: status,
     code: HttpStatus[status] ?? 'HTTP_ERROR',
     message: exception.message,
+    requestId: reply.requestId,
+  });
+}
+
+function warnUnavailable(reply: ErrorReply, message: string): void {
+  const context = { requestId: reply.requestId };
+  if (reply.request.log) reply.request.log.warn(context, message);
+  else new Logger(HttpExceptionFilter.name).warn({ ...context, message });
+}
+
+function replyCapacityError(exception: unknown, reply: ErrorReply): void {
+  warnUnavailable(
+    reply,
+    exception instanceof Error ? exception.message : 'Capacity error',
+  );
+  reply.response.setHeader('Retry-After', RETRY_AFTER_SECONDS);
+  reply.response.status(HttpStatus.SERVICE_UNAVAILABLE).json({
+    statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+    code: 'SERVICE_BUSY',
+    message: 'The service is busy. Retry shortly',
     requestId: reply.requestId,
   });
 }
@@ -158,6 +186,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       replyDomainException(exception, reply);
     } else if (isExposedClientHttpError(exception)) {
       replyBodyParserError(exception, reply);
+    } else if (isCapacityError(exception)) {
+      replyCapacityError(exception, reply);
     } else {
       replyInternalError(exception, reply);
     }

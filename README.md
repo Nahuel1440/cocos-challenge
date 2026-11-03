@@ -116,7 +116,7 @@ For example, selling 100 shares of instrument 47 on the fresh seed is rejected b
 }
 ```
 
-Field-validation failures return `400` without storing an order. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
+Field-validation failures return `400` without storing an order. A request that runs out of waiting time for a database connection returns `503 SERVICE_BUSY` with `Retry-After: 1`; nothing was saved and a retry is safe. The error filter logs a `503` as a warning. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
 
 ```json
 {
@@ -155,7 +155,7 @@ Order submission and cancellation use a transaction with a per-user advisory loc
 
 - Each ledger read replays the user's FILLED and NEW orders, so cost grows with account history. Search has no pagination.
 - Portfolio cash and reservations come from one orders query; quotes are read separately. There is no atomic snapshot across ledger and prices.
-- Heavy same-user concurrency queues behind the advisory lock while holding database connections. Pool or transaction waits can fail; no production throughput guarantee is claimed.
+- Heavy same-user concurrency queues behind the advisory lock while holding database connections. Pool or transaction waits fail with `503 SERVICE_BUSY` instead of `500`; no production throughput guarantee is claimed.
 - Shutdown hooks disconnect Prisma but do not fully drain in-flight HTTP requests before closing the database.
 - There is no order-retrieval or order-history endpoint.
 
