@@ -80,26 +80,24 @@ export class SendOrderUseCase {
 
     await this.assertTradable(instrumentId);
 
-    const outcome = await this.uow.run(async () => {
+    const result = await this.uow.run(async () => {
       await this.orders.lockLedger(userId);
 
       const replay = await this.searchReplay(input);
-      if (replay !== null) {
-        return { result: replay, placed: null };
-      }
+      if (replay !== null) return replay;
 
       const placed = await this.place(input);
-      const result = this.toResult(placed);
-      await this.rememberRequest({ input, result });
+      const placedResult = this.toResult(placed);
+      await this.rememberRequest({ input, result: placedResult });
 
-      return { result, placed };
+      return placedResult;
     });
 
-    if (outcome.placed !== null) {
-      this.logOutcome(outcome.placed);
+    if (!result.replayed) {
+      this.logOutcome(result.body);
     }
 
-    return outcome.result;
+    return result;
   }
 
   private async searchReplay(
@@ -200,10 +198,10 @@ export class SendOrderUseCase {
     }
   }
 
-  private logOutcome(order: Order): void {
+  private logOutcome(body: SendOrderResult['body']): void {
     this.logger.log({
       msg: 'Order placed',
-      ...order.toPrimitives(),
+      ...body,
     });
   }
 }
