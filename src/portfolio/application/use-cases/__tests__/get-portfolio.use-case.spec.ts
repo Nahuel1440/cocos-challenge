@@ -39,16 +39,14 @@ describe('run', () => {
     const INSTRUMENT_ID = 47;
     const orders: Mocked<OrderRepository> = {
       lockLedger: vi.fn(),
-      searchByUser: vi
-        .fn()
-        .mockResolvedValue([
-          LedgerEntryMother.filledCashIn(100000),
-          LedgerEntryMother.filledBuy({
-            instrumentId: INSTRUMENT_ID,
-            size: 10,
-            price: '900',
-          }),
-        ]),
+      searchByUser: vi.fn().mockResolvedValue([
+        LedgerEntryMother.filledCashIn(100000),
+        LedgerEntryMother.filledBuy({
+          instrumentId: INSTRUMENT_ID,
+          size: 10,
+          price: '900',
+        }),
+      ]),
       findByIdForUser: vi.fn(),
       save: vi.fn(),
     };
@@ -87,5 +85,7 @@ describe('run', () => {
       quantity: 10,
     });
     expect(position!.marketValue!.toString()).toBe('9258.5');
+    expect(position!.averagePrice!.toString()).toBe('900');
+    expect(position!.totalReturnPercentage!.toFixed(2)).toBe('2.87');
   });
 });

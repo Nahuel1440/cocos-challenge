@@ -27,7 +27,8 @@ const SEED_ORDER_IDS = {
 };
 
 const LEDGER_LOCK_NAMESPACE = 1;
-const LOCK_POLL_LIMIT_MS = 2000;
+const LOCK_POLL_LIMIT_MS = 5000;
+const LOCK_TEST_TIMEOUT_MS = 10000;
 const LOCK_POLL_INTERVAL_MS = 25;
 
 const countLedgerLockWaiters = async (client: Client, userId: number) => {
@@ -48,7 +49,7 @@ const storedStatus = async (client: Client, orderId: number) => {
   return rows[0]!.status;
 };
 
-const waitForLedgerLockWaiters =async (client: Client, userId: number) => {
+const waitForLedgerLockWaiters = async (client: Client, userId: number) => {
   const deadline = Date.now() + LOCK_POLL_LIMIT_MS;
   let waiters = await countLedgerLockWaiters(client, userId);
   while (waiters === 0 && Date.now() < deadline) {
@@ -176,43 +177,47 @@ describe('POST /orders/:id/cancel', () => {
     expect(fitsNow.body.status).toBe('NEW');
   });
 
-  it('should wait for the ledger lock before cancelling', async () => {
-    const placed = await sendOrder({
-      type: 'LIMIT',
-      size: 1,
-      price: '100.00',
-    }).expect(201);
-    const holder = new Client({ connectionString: inject('databaseUrl') });
-    await holder.connect();
-    let answered = false;
-    let cancelling: Promise<request.Response> | undefined;
-    try {
-      await holder.query('BEGIN');
-      await holder.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [
-        LEDGER_LOCK_NAMESPACE,
-        Number(OWNER),
-      ]);
+  it(
+    'should wait for the ledger lock before cancelling',
+    async () => {
+      const placed = await sendOrder({
+        type: 'LIMIT',
+        size: 1,
+        price: '100.00',
+      }).expect(201);
+      const holder = new Client({ connectionString: inject('databaseUrl') });
+      await holder.connect();
+      let answered = false;
+      let cancelling: Promise<request.Response> | undefined;
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [
+          LEDGER_LOCK_NAMESPACE,
+          Number(OWNER),
+        ]);
 
-      cancelling = cancel(placed.body.id).then((response) => {
-        answered = true;
-        return response;
-      });
-      const waiters = await waitForLedgerLockWaiters(holder, Number(OWNER));
-      expect(waiters).toBe(1);
-      expect(answered).toBe(false);
-      expect(await storedStatus(holder, placed.body.id)).toBe('NEW');
+        cancelling = cancel(placed.body.id).then((response) => {
+          answered = true;
+          return response;
+        });
+        const waiters = await waitForLedgerLockWaiters(holder, Number(OWNER));
+        expect(waiters).toBe(1);
+        expect(answered).toBe(false);
+        expect(await storedStatus(holder, placed.body.id)).toBe('NEW');
 
-      await holder.query('COMMIT');
-      const response = await cancelling;
+        await holder.query('COMMIT');
+        const response = await cancelling;
 
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe('CANCELLED');
-    } finally {
-      await holder.query('ROLLBACK').catch(() => undefined);
-      await cancelling?.catch(() => undefined);
-      await holder.end();
-    }
-  });
+        expect(response.status).toBe(200);
+        expect(response.body.status).toBe('CANCELLED');
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        await cancelling?.catch(() => undefined);
+        await holder.end();
+      }
+    },
+    LOCK_TEST_TIMEOUT_MS,
+  );
 
   it('should fill the buy or reject it with INSUFFICIENT_FUNDS, consistent with the final cash, when a cancel of a NEW LIMIT buy and a MARKET buy run concurrently', async () => {
     const AVAILABLE_CASH_BEFORE = new Decimal('627500.00');

@@ -104,7 +104,9 @@ describe('GET /portfolio', () => {
     );
     expect(pamp.quantity).toBe(50);
     expect(pamp.averagePrice).toBe('929.17');
+    expect(pamp.marketValue).toBe('46292.50');
     expect(response.body.availableCash).toBe('618241.50');
+    expect(response.body.totalValue).toBe('889756.00');
   });
 
   it('should return null market value and leave the position out of the total when it has no price', async () => {
