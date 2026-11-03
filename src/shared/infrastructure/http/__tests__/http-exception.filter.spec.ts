@@ -166,11 +166,12 @@ describe('HttpExceptionFilter', () => {
   });
 
   it('should answer 503 with Retry-After when the exception is a DomainException of category Unavailable', () => {
-    const { status, body, setHeader } = render(
+    const { status, body, setHeader, log } = render(
       new StubException(ErrorCategory.Unavailable),
     );
 
     expect(status).toBe(503);
+    expect(log.warn).toHaveBeenCalledTimes(1);
     expect(setHeader).toHaveBeenCalledWith('Retry-After', '1');
     expect(body).toEqual({
       statusCode: 503,
@@ -196,6 +197,7 @@ describe('HttpExceptionFilter', () => {
       message: 'The service is busy. Retry shortly',
       requestId: 'req-1',
     });
+    expect(log.warn).toHaveBeenCalledTimes(1);
     expect(log.error).not.toHaveBeenCalled();
   });
 
@@ -207,5 +209,17 @@ describe('HttpExceptionFilter', () => {
     expect(status).toBe(503);
     expect(setHeader).toHaveBeenCalledWith('Retry-After', '1');
     expect(body.code).toBe('SERVICE_BUSY');
+  });
+
+  it('should keep a 500 INTERNAL_ERROR when the Prisma error is not a P2028', () => {
+    const error = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed',
+      { code: 'P2002', clientVersion: 'test' },
+    );
+
+    const { status, body } = render(error);
+
+    expect(status).toBe(500);
+    expect(body.code).toBe('INTERNAL_ERROR');
   });
 });

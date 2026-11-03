@@ -98,6 +98,7 @@ function replyDomainException(
   const { code, message, category } = exception;
   const statusCode = STATUS_BY_CATEGORY[category];
   if (category === ErrorCategory.Unavailable) {
+    warnUnavailable(reply, message);
     reply.response.setHeader('Retry-After', RETRY_AFTER_SECONDS);
   }
   reply.response
@@ -126,12 +127,17 @@ function replyBodyParserError(
   });
 }
 
-function replyCapacityError(exception: unknown, reply: ErrorReply): void {
+function warnUnavailable(reply: ErrorReply, message: string): void {
   const context = { requestId: reply.requestId };
-  const message =
-    exception instanceof Error ? exception.message : 'Capacity error';
   if (reply.request.log) reply.request.log.warn(context, message);
   else new Logger(HttpExceptionFilter.name).warn({ ...context, message });
+}
+
+function replyCapacityError(exception: unknown, reply: ErrorReply): void {
+  warnUnavailable(
+    reply,
+    exception instanceof Error ? exception.message : 'Capacity error',
+  );
   reply.response.setHeader('Retry-After', RETRY_AFTER_SECONDS);
   reply.response.status(HttpStatus.SERVICE_UNAVAILABLE).json({
     statusCode: HttpStatus.SERVICE_UNAVAILABLE,
