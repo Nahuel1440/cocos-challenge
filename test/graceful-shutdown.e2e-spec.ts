@@ -18,6 +18,7 @@ const LIMIT_BUY = {
   price: '100.00',
 };
 const SHUTDOWN_HEAD_START_MS = 200;
+const SHUTDOWN_TEST_TIMEOUT_MS = 20000;
 
 describe('graceful shutdown', () => {
   let holder: Client;
@@ -38,28 +39,35 @@ describe('graceful shutdown', () => {
     await app.close();
   });
 
-  it('should finish an in-flight order when the application is closed', async () => {
-    await holder.query('BEGIN');
-    await holder.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [
-      LEDGER_LOCK_NAMESPACE,
-      OWNER,
-    ]);
-    const inFlight = fetch(`${await app.getUrl()}/orders`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': String(OWNER),
-      },
-      body: JSON.stringify(LIMIT_BUY),
-    });
-    await waitForLedgerLockWaiters(holder, OWNER);
+  it(
+    'should finish an in-flight order when the application is closed',
+    async () => {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [
+        LEDGER_LOCK_NAMESPACE,
+        OWNER,
+      ]);
+      const inFlight = fetch(`${await app.getUrl()}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': String(OWNER),
+        },
+        body: JSON.stringify(LIMIT_BUY),
+      });
+      const waiters = await waitForLedgerLockWaiters(holder, OWNER);
+      expect(waiters).toBe(1);
 
-    const closing = app.close();
-    await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_HEAD_START_MS));
-    await holder.query('COMMIT');
+      const closing = app.close();
+      await new Promise((resolve) =>
+        setTimeout(resolve, SHUTDOWN_HEAD_START_MS),
+      );
+      await holder.query('COMMIT');
 
-    const response = await inFlight;
-    await closing;
-    expect(response.status).toBe(201);
-  });
+      const response = await inFlight;
+      await closing;
+      expect(response.status).toBe(201);
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS,
+  );
 });
