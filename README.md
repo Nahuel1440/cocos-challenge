@@ -132,7 +132,7 @@ Field-validation failures return `400` without storing an order. A request that 
 | Command | What it checks |
 |---------|----------------|
 | `npm test` | Unit tests; no database or Docker. |
-| `npm run test:e2e` | HTTP and integration tests against a throwaway Postgres managed by Testcontainers. Requires Docker and a previous `npm run build` (one test starts `dist/main.js`); does not touch the Compose database. |
+| `npm run test:e2e` | HTTP and integration tests against a throwaway Postgres managed by Testcontainers. Requires Docker and a fresh `npm run build` (one test starts `dist/main.js`); does not touch the Compose database. |
 | `npx vitest run --config vitest.config.e2e.mts test/orders.e2e-spec.ts` | Focused functional tests for order submission. Requires Docker. |
 | `npm run lint`, `npm run typecheck`, `npm run build` | Lint, types and compilation. CI also runs both test suites. |
 

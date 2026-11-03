@@ -10,6 +10,7 @@ import {
   waitForLedgerLockWaiters,
 } from './support/ledger-lock';
 import { reloadSeed } from './support/reload-seed';
+import { waitForRefusal } from './support/wait-for-refusal';
 import { truncateAllTables } from './support/truncate-all-tables';
 
 const BUILT_MAIN = path.join(process.cwd(), 'dist', 'main.js');
@@ -17,7 +18,8 @@ const STARTUP_LIMIT_MS = 20000;
 const LOG_LIMIT_MS = 5000;
 const STOP_LIMIT_MS = 5000;
 const POLL_INTERVAL_MS = 50;
-const SHUTDOWN_HEAD_START_MS = 200;
+const SHUTDOWN_REFUSAL_LIMIT_MS = 5000;
+const SHUTDOWN_EXIT_LIMIT_MS = 15000;
 const SIGTERM_TEST_TIMEOUT_MS = 20000;
 const OWNER = 1;
 const LIMIT_BUY = {
@@ -137,18 +139,28 @@ describe('built application', () => {
         expect(waiters).toBe(1);
 
         child.kill('SIGTERM');
-        await new Promise((resolve) =>
-          setTimeout(resolve, SHUTDOWN_HEAD_START_MS),
+        const refusing = await waitForRefusal(
+          `http://127.0.0.1:${port}/`,
+          SHUTDOWN_REFUSAL_LIMIT_MS,
         );
+        expect(refusing).toBe(true);
         await holder.query('COMMIT');
 
         const response = await inFlight;
         expect(response.status).toBe(201);
+
+        const stopped = await Promise.race([
+          once(child, 'exit').then(() => true),
+          new Promise<boolean>((resolve) =>
+            setTimeout(() => resolve(false), SHUTDOWN_EXIT_LIMIT_MS),
+          ),
+        ]);
+        expect(stopped).toBe(true);
       } finally {
         await holder.query('ROLLBACK').catch(() => undefined);
         await holder.end();
       }
     },
-    SIGTERM_TEST_TIMEOUT_MS,
+    SIGTERM_TEST_TIMEOUT_MS + SHUTDOWN_EXIT_LIMIT_MS,
   );
 });
