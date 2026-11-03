@@ -116,7 +116,7 @@ For example, selling 100 shares of instrument 47 on the fresh seed is rejected b
 }
 ```
 
-Field-validation failures return `400` without storing an order. A request that runs out of waiting time for a database connection returns `503 SERVICE_BUSY` with `Retry-After: 1`; nothing was saved and a retry is safe. A `503` is logged as a warning, without a stack. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
+Field-validation failures return `400` without storing an order. A request that runs out of waiting time for a database connection returns `503 SERVICE_BUSY` with `Retry-After: 1`; nothing was saved and a retry is safe. The error filter logs a `503` as a warning. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
 
 ```json
 {
