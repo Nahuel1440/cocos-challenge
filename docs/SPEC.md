@@ -1,190 +1,205 @@
 # SPEC: Portfolio, search and orders API
 
-REST API in Node.js on Postgres with three endpoints: portfolio, instrument search and order submission, plus cancellation. This document records the design decisions made before writing code. Each decision says what was chosen, why, and what was rejected.
+This specification describes the delivered API and its design rationale. Superseded decisions point to their replacement. See the [README](../README.md) to run and exercise the API, and the [task record](tasks/TASKS.md) for implementation and verification evidence.
 
-Cancellation is mandatory in the user-selected delivery scope.
+## Problem and delivery scope
 
-Idempotency is mandatory for this delivery, overriding earlier removable classifications; the optional `Idempotency-Key` is a client-generated UUID per logical order, reused on retries; for matching user, operation, key and validated input, the server atomically stores the request hash, order and original response and replays that response without creating another order.
+A broker user needs to value an account, find instruments, and submit buy/sell orders without spending the same cash or shares twice. Orders are the ledger: cash and holdings are derived from the relevant rows in `orders`, not separate balance tables.
 
-> The user comes in the `X-User-Id` header (D-22). Amounts and prices travel as decimal strings (D-23). No open notes remain.
-
-## Problem
-
-A broker user needs to see how much their account is worth and each position, search assets by ticker or name, and submit buy and sell orders. Orders are the ledger: balances and holdings are always computed from the `orders` table.
+The brief requires portfolio, instrument search, MARKET/LIMIT orders by quantity or ARS amount, a functional order-submission test, and documented assumptions. Cancellation is included in the selected delivery scope. Idempotency is also mandatory for this delivery, while the client header that activates it remains optional. Authentication and market simulation are explicitly unnecessary in the brief.
 
 ### Functional requirements
 
-| ID | The user can… |
-|----|-------------------|
-| FR-1 | See their portfolio: total account value, available cash and, per position, quantity, market value in ARS and total return %. |
-| FR-2 | Search instruments by ticker and/or name. |
-| FR-3 | Submit a BUY/SELL, MARKET/LIMIT order, by exact quantity or by ARS amount (floor to whole shares). |
-| FR-4 | Cancel a `NEW` order. |
+| ID | Delivered capability |
+|----|----------------------|
+| FR-1 | Portfolio: total account value, available ARS cash and each nonzero holding's quantity, market value, moving average purchase price and total return percentage. |
+| FR-2 | Search instruments by ticker or name. |
+| FR-3 | Submit BUY/SELL, MARKET/LIMIT orders by exact shares or ARS amount, flooring to whole shares. |
+| FR-4 | Cancel an owned NEW order, releasing its reservation; repeating cancellation is safe. |
 
 ### Non-functional requirements
 
-| ID | The system must… |
-|----|------------------|
-| NFR-1 | With concurrent orders from the same user, never leave available cash or shares below zero. Each order is evaluated against the balance left by the already confirmed orders, and the one that does not fit is saved `REJECTED`. |
-| NFR-2 | Not compute amounts with JS floats. Share quantities are integers. |
-| NFR-3 | Be idempotent in send-order: a retry does not create a second order. **Cuttable** (D-27): last task; if it does not fit, it goes to the README. |
-| NFR-4 | Treat orders as immutable. The only allowed change is `NEW → CANCELLED`. |
-| NFR-5 | Read the portfolio from a single consistent snapshot of the database. |
-| NFR-6 | Validate input at the edge and use parameterized queries, with no stack traces in responses. |
+These are the implementation's explicit design commitments, not additional requirements attributed to the brief.
 
-## Glossary
+| ID | Commitment and boundary |
+|----|-------------------------|
+| NFR-1 | New orders must not spend more available cash or shares than the ledger permits, including concurrent requests for the same user. Orders that do not fit are persisted as REJECTED. Existing seed anomalies are reported, not repaired by this rule. |
+| NFR-2 | Money uses decimal arithmetic; share quantities use integers. Intermediates are not quantized to two currency decimals. |
+| NFR-3 | Requests carrying the same user's Idempotency-Key and matching validated input replay the original response without a second order. The feature is mandatory; the header is optional. |
+| NFR-4 | Submission facts are not revised through the API. The only lifecycle mutation is NEW to CANCELLED, with cancelledAt recorded; no update/delete endpoint exists. This is an application rule, not a database prohibition against external updates. |
+| NFR-5 | Portfolio cash and reservations come from one orders query and therefore one statement snapshot. Quotes are a separate read; there is no atomic snapshot across all portfolio data. |
+| NFR-6 | Validate at the HTTP boundary, parameterize queries, and return no stack traces to clients. |
+| NFR-7 | Generate a server request ID, correlate errors, and log committed order outcomes without balances. This observability is a design choice. |
+
+## Glossary and calculations
 
 | Term | Meaning here |
-|------|-----------------|
-| Instrument | An asset (`ACCIONES`) or the currency (`MONEDA`). ARS is instrument id 66. |
-| Order | A row of `orders`. Every order is saved, even rejected ones. |
-| `size` | Shares in BUY/SELL. **Pesos** in CASH_IN/CASH_OUT (with `price = 1`). |
-| Holding | Σ size of `FILLED` BUY − Σ size of `FILLED` SELL, per instrument. |
-| Total cash | Σ CASH_IN − Σ CASH_OUT − Σ size×price of BUY + Σ size×price of SELL, all `FILLED`. |
-| Reservation | What a `NEW` LIMIT sets aside: size×price in pesos (BUY) or size shares (SELL). |
-| Available cash | Total cash − reservations of `NEW` BUY. |
-| Available shares | Holding − reservations of `NEW` SELL. |
-| Current price | `close` of the `marketdata` row with the most recent date for the instrument. |
-| Average price | **Moving** average cost of the current holding (see D-5). |
-| Market value | Holding × current price. |
-| Total return % | (current price − average price) / average price. |
-| Daily return % | (close − previousclose) / previousclose. It is not the total return. |
+|------|--------------|
+| Instrument | An asset or a currency. The seed uses ACCIONES and MONEDA; ARS is instrument 66. |
+| Order | A persisted submission or seeded cash movement. Business rejections are stored; invalid requests are not. |
+| size | Shares in BUY/SELL; whole pesos in seeded CASH_IN/CASH_OUT, whose price is 1. |
+| Holding | Sum of FILLED BUY sizes minus FILLED SELL sizes, per instrument. NEW orders do not add owned shares. |
+| Total cash | FILLED CASH_IN minus CASH_OUT minus BUY size times price plus SELL size times price. |
+| Reservation | A NEW LIMIT BUY reserves size times price in ARS; a NEW SELL reserves size shares. |
+| Available cash / shares | Total cash minus BUY reservations; holding minus SELL reservations. |
+| Current price | close from the latest marketdata.date for an instrument. |
+| Average price | Moving purchase cost: recomputed on a buy, retained on a sale while quantity stays positive, cleared at zero or below. A later buy crossing to positive starts at that buy's price. |
+| Market value | Holding times current price; null without a quote. Negative inherited holdings have negative value. |
+| Total value | Total cash, including reserved cash, plus market values of priced positions. Unpriced positions are excluded, so the result is partial when quotes are missing. |
+| Total return percentage | (current price minus average price) divided by average price, times 100. Average 100 and price 110 gives "10.00", not "0.10". Null without a quote or purchase-cost basis. |
+| Daily return | (close minus previousclose) divided by previousclose, times 100. Not returned by this API. |
 
-## Order lifecycle
+## HTTP contract
 
-```
-send-order ─ validate ─┬─ invalid ──────────────→ 400, not stored
-                       └─ valid ─ enough? ─┬─ no ─→ REJECTED (final)
-                                           └─ yes ─┬─ MARKET ─→ FILLED (final, at current price)
-                                                   └─ LIMIT  ─→ NEW ─ cancel ─→ CANCELLED (final)
-```
+### Identity and errors
 
-`NEW → FILLED` is not implemented: the market is not simulated (O-2).
+All routes use the declared `X-User-Id` identity. Missing, malformed or unknown users return `400` with `MISSING_USER_ID`, `INVALID_USER_ID` or `UNKNOWN_USER`. This is not authentication: a client can impersonate another user. Ownership checks only apply to the declared identity.
 
-## Endpoints
+Errors use `{ statusCode, code, message, requestId }`. A request ID is also returned in `X-Request-Id`. Invalid order fields use `400 VALIDATION_ERROR`; unexpected errors use `500 INTERNAL_ERROR` with a generic message, with details logged server-side. Body parsing happens before the guard: malformed JSON is `400 VALIDATION_ERROR`, and an oversized body is `413 PAYLOAD_TOO_LARGE`, even without the identity header.
 
-### `GET /portfolio`
+### GET /portfolio
 
-All user routes read `X-User-Id`. If it is missing or not a valid integer → `400` (D-22).
+Returns `200` with `totalValue`, `availableCash` and `positions`. Each position contains `instrumentId`, `ticker`, `name`, `quantity`, `marketValue`, `averagePrice` and `totalReturnPercentage`. Money and percentage fields are decimal strings; unknown values are null. Zero holdings are omitted. See D-26, D-34 and D-35 for missing quotes, inherited negative positions and the read boundary.
 
-Response `200`:
+### GET /instruments?query=
 
-| Field | Source |
-|-------|--------|
-| `totalValue` | Total cash + Σ market value of positions with a price (D-7, D-26) |
-| `availableCash` | Available cash (D-6) |
-| `positions[]` | Per instrument with holding ≠ 0: `instrumentId`, `ticker`, `name`, `quantity`, `marketValue`, `averagePrice`, `totalReturnPercentage`. Without a price: `marketValue` and `totalReturnPercentage` are `null` (D-26) |
+Trimmed, case-insensitive ticker/name search using escaped ILIKE patterns, excluding MONEDA. Missing query returns `400 VALIDATION_ERROR`; empty or whitespace-only input returns `200` with `{ "instruments": [] }` without a database call. Results rank exact ticker, ticker prefix, name prefix, then substring; ties sort by ticker and id. There is no pagination.
 
-### `GET /instruments?q=`
+### POST /orders
 
-`ILIKE '%q%'` on `ticker` and `name`, with the input wildcards escaped. Response `200` with `{ "instruments": [...] }`. No pagination for now; the wrapper object allows adding `nextCursor` without breaking the contract (D-24).
+Body: `instrumentId`, `side` (BUY/SELL), `type` (MARKET/LIMIT), exactly one of `size` or `amount`, and `price` for LIMIT only. Idempotency-Key is an optional UUID header.
 
-### `POST /orders`
+- instrumentId and size must be integers in 1..2147483647; the instrument must exist and not be MONEDA.
+- amount and price are decimal strings in 0.01..99999999.99 with at most two decimals. MARKET must omit price; LIMIT must include it.
+- By amount, size is floored using the MARKET close or the client's LIMIT price. A derived size above the INT maximum returns `400 VALIDATION_ERROR` without persistence.
+- A LIMIT amount that buys no share is invalid (`400`). For MARKET, the corresponding result is a persisted `REJECTED AMOUNT_BELOW_ONE_SHARE`, since the market price is not part of the client's request.
 
-Headers `X-User-Id` and `Idempotency-Key: <uuid>` (optional, D-27). Body: `instrumentId`, `side` (BUY/SELL), `type` (MARKET/LIMIT), `size` (integer) **or** `amount` (decimal string), exactly one; `price` (decimal string, LIMIT only, required).
+| Result | HTTP / body | Persistence |
+|--------|-------------|-------------|
+| Accepted MARKET | 201, FILLED | One order at the latest close |
+| Accepted LIMIT | 201, NEW | One order, with cash or shares reserved |
+| Insufficient cash or shares | 201, REJECTED with INSUFFICIENT_FUNDS or INSUFFICIENT_SHARES | One rejected order |
+| No usable MARKET price | 201, REJECTED with NO_MARKET_PRICE | price is null; size is requested size, or null for an amount request |
+| MARKET amount buys zero shares | 201, REJECTED with AMOUNT_BELOW_ONE_SHARE | size is 0 |
+| Same user's key and matching input | Original response, Idempotent-Replayed: true | No additional order |
+| Same key, different validated input | 422 IDEMPOTENCY_KEY_CONFLICT | No additional order |
+| Invalid request | 400 VALIDATION_ERROR | No order or consumed key |
 
-| Result | HTTP | Stored |
-|-----------|------|-----------|
-| MARKET with funds | `201` + `Location`, `status: FILLED` | Yes |
-| LIMIT with funds | `201` + `Location`, `status: NEW` | Yes, with reservation |
-| No funds / 0 shares / no price | `201` + `Location`, `status: REJECTED`, `rejectionReason` | Yes |
-| Retry, same key and same body (D-27) | The original stored response + `Idempotent-Replayed: true` | No (returns the original) |
-| Same key, different body | `422` | No |
-| Invalid request (see D-8) | `400` | No |
+Creation responses include `Location: /orders/:id`, although no GET route exists there. This is a documented API limitation, not a usable retrieval link.
 
-### `POST /orders/:id/cancel`
+### POST /orders/:id/cancel
 
-| Result | HTTP |
-|-----------|------|
-| `NEW` order of the user | `200` with the `CANCELLED` order |
-| Order in another status | `409` |
-| Nonexistent or of another user | `404` |
+| Current state / ownership | Result |
+|---------------------------|--------|
+| Owned NEW | 200 with CANCELLED and cancelledAt |
+| Owned CANCELLED | 200 with the order unchanged, including its original cancellation time |
+| Owned FILLED or REJECTED | 409 ORDER_NOT_CANCELLABLE |
+| Missing or another user's order | 404 ORDER_NOT_FOUND |
 
-## Send-order rules
+Cancellation releases a reservation through the derived ledger; it does not update a separate balance. Open LIMIT orders never fill or expire automatically because no market simulator or expiry worker is implemented.
 
-1. Validate (400 if it fails): integer `size > 0`, `size` xor `amount`, LIMIT with `price`, existing instrument, instrument not `MONEDA`.
-2. Open a transaction and take `pg_advisory_xact_lock(userId)` (D-9).
-3. If `Idempotency-Key` is present and already exists in `idempotency_requests` for the user: return the stored response, or `422` if the `request_hash` differs. It is looked up before computing price or balance: a retry of a `REJECTED` order returns the rejection even if money came in later (D-27).
-4. Price: MARKET uses the current price; LIMIT uses the user's. No `marketdata` in MARKET → `REJECTED NO_MARKET_PRICE` with `price` NULL (D-21).
-5. If `amount` is present: `size = floor(amount / price)`. If it gives 0 → `REJECTED AMOUNT_BELOW_ONE_SHARE` with `size` 0 (D-8, D-21).
-6. BUY: if size×price > available cash → `REJECTED INSUFFICIENT_FUNDS`. SELL: if size > available shares → `REJECTED INSUFFICIENT_SHARES`.
-7. If there was no rejection: MARKET → `FILLED`; LIMIT → `NEW`.
-8. Insert the order with the key and the hash, and commit.
+## Submission and transaction flow
+
+1. The HTTP boundary validates identity, fields and optional key; the use case verifies the instrument is tradable.
+2. `UnitOfWork.run(work)` starts a READ COMMITTED transaction. The callback explicitly calls `orders.lockLedger(userId)` before reading the ledger or idempotency record: `pg_advisory_xact_lock(1, userId)`.
+3. For an existing key, compare the hash of the validated input and replay the saved response, or raise the 422 conflict. This happens before recomputing balance or price.
+4. Otherwise read FILLED and NEW entries, obtain the price, replay the ledger chronologically, derive size, and apply order rules. Missing price takes precedence over size/funds checks; size 0 on MARKET precedes insufficient-funds checks.
+5. The app takes datetime after the lock and constructs a FILLED, NEW or REJECTED order. Save it and, if keyed, the request hash, order ID and response in the same transaction. Failure rolls both back.
+6. After successful commit, log the new outcome. A replay does not log a second placement.
+
+Cancellation uses the same UoW callback and lock before loading the owned order. `UnitOfWork` supplies transaction context; it does not acquire ledger locks automatically. Advisory locks protect cooperating write paths only, not arbitrary external database writes.
 
 ## Decisions
 
-| ID | Decision | Why | Rejected alternatives |
-|----|----------|---------|-----------|
-| D-1 | Amounts with decimal (`Prisma.Decimal`, decimal.js), never `Number`. | `pg` returns NUMERIC as a string; floats lose cents. | Integers in cents: the seed already stores `NUMERIC` and `pg` returns it as an exact string; cents forces a conversion at every edge and still needs rounding in divisions (average, return). |
-| D-2 | Mandatory NFRs: NFR-1 to NFR-6. | They protect the core rule and are cheap. | Rate limiting, metrics, tracing (README only). |
-| D-3 | ~~Idempotency is mandatory, not a stretch.~~ Replaced by D-27. | In fintech a retry cannot duplicate an order. | Leave it for after the core. |
-| D-4 | Total return against the average purchase price. | It reflects what you paid; the brief asks to use `FILLED` orders for the return; brokers show it this way. | Daily return; simple average. |
-| D-5 | The average is **moving**: a buy recomputes it, a sell does not change it, and with holding 0 it resets. | Industry practice (Robinhood, IBKR). | Average of all historical buys (fails when selling everything and buying again). |
-| D-6 | A `NEW` LIMIT reserves balance and releases it when cancelled. | Avoids committing the same balance to several orders. | Do not reserve (Kraken style). |
-| D-7 | Total value = total cash + market value. | Reserved money still belongs to the user. | Use available cash. |
-| D-8 | If the same request could never succeed → `400`, not stored. If it depends on the account or market state → `REJECTED`, stored. | Separates a malformed request from a valid order that cannot be executed today. | — |
-| D-9 | `pg_advisory_xact_lock(userId)` in send-order and in cancel. | Keeps `orders` as the single source of truth, with no cache; costs one line; does not use `users` as a lock. | `FOR UPDATE` on `users`, `SERIALIZABLE` + retry, balance tables (next step at scale). |
-| D-10 | Trimmed gamora-sv stack: NestJS 11, Prisma 7 + adapter-pg, `@nestjs-cls/transactional`, 4 hexagonal layers, `DomainException` → HTTP, class-validator, Vitest, Pino. | It already solves decimals, transactions and error mapping. | Soft deletes, Criteria, Doppler, Bruno, Clerk/JWT/throttler. |
-| D-11 | `side`, `status`, `type` and `rejection_reason` as Postgres ENUMs. | A typo like `'FILED'` would make an order vanish from the sums. | `CHECK IN (...)`. |
-| D-12 | `NOT NULL` on every column that cannot be missing. | The seed omitted them by oversight; an order with NULL `userid` is money without an owner. | Keep the DDL NULLs. |
-| D-13 | Only indexes for known access patterns: `orders(userid, …)` and `marketdata(instrumentid, date)`. Search stays without an index. | Postgres does not index foreign keys on its own. `ILIKE '%q%'` does not use B-tree and the instruments table fits in one page. | Index everything; `pg_trgm` now. |
-| D-14 | Measure with generated volume (`generate_series`) and `EXPLAIN ANALYZE`, with and without index. Cuttable task. | With the seed data, the planner always reads the whole table, and that misleads. | Measure only with the seed. |
-| D-15 | Migrations in the repo. Development and tests against a local Postgres; Neon only if Emi confirms. | The local Postgres is needed for tests anyway, it can be reset, and applying to Neon is one command. | Migrate Neon directly. |
-| D-16 | ~~Replaced by D-27.~~ `Idempotency-Key` stored in `orders` with `UNIQUE (userid, idempotency_key)` and `request_hash`. Retry → the original order with `Idempotent-Replayed: true`. | The response is already the order row; it is inserted in the same transaction; it is the trading pattern (FIX ClOrdID). D-9 serializes simultaneous retries. | Separate table Stripe style; error on a duplicate (Alpaca style). |
-| D-17 | send-order responds `201` on `FILLED`, `NEW` and `REJECTED`. | Without funds, the API did its job right; every 4xx says "the client made a mistake"; an order is always created. | `422`; `200`. |
-| D-18 | Cancelling an order that is not `NEW` → `409`. | The request is valid, but it conflicts with the current state. | `400`. |
-| D-19 | Functional test over HTTP (`supertest`) on Testcontainers Postgres, truncating and reloading the seed between tests. | One command, clean database; it is the gamora-sv pattern; it covers "the function" and "the endpoint". | Manual docker compose; rollback per test (the app opens its own transactions). |
-| D-20 | `rejection_reason` column, returned in the response. Values: `INSUFFICIENT_FUNDS`, `INSUFFICIENT_SHARES`, `AMOUNT_BELOW_ONE_SHARE`, `NO_MARKET_PRICE`. | A `REJECTED` without a reason is of little use for auditing. Each name states the cause from the client's request, not the internal computation. | Store only the status; `ZERO_SHARES` (names the internal result `size = 0`, not what the client sent). |
-| D-21 | In `REJECTED`, `price` can be NULL (no price) and `size` can be 0 (zero shares), with `CHECK (… OR status = 'REJECTED')`. | It is honest: a 0 in `price` would read as "executed at 0". | Invent values. |
-| D-22 | The user comes in the `X-User-Id` header, read by a single guard. Missing or invalid → `400`. Routes: `GET /portfolio`, `GET /instruments?q=`, `POST /orders`, `POST /orders/:id/cancel`. | Challenge-only identity simulation: authentication is out of scope (O-1). Centralizing identity resolution is intended to keep routes and handlers independent of the identity source and ease future authentication integration. `X-User-Id` is not a validated token: the client can change it. Resource ownership checks use this declared identity and do not prevent impersonation. This is not production security. | Mixed (path in portfolio, body in orders); `/users/:userId/...` everywhere. `401` (there is no auth). |
-| D-23 | Amounts and prices as decimal strings in JSON, in request and response (`price`, `amount` validated by format, otherwise `400`). Share quantities as integers. `totalReturnPercentage` as a string in percent with 2 decimals (`"3.33"`). | `JSON.parse` turns a number into a float before the code sees it, in the client and in Nest's body parser; the string arrives exact. An integer share count loses nothing. | Numbers for money; everything as a string "for consistency"; fraction `"0.0333"`. |
-| D-24 | Search without pagination, response wrapped in `{ "instruments": [...] }`. Cursor pagination (`ticker, id`) as an optional task at the end. | The seed has dozens of rows; a real broker has thousands (CEDEARs, bonds, ONs), and the object allows adding `nextCursor` without breaking clients. | Bare array; paginate now; offset. |
-| D-25 | The portfolio does not show daily return. | FR-1 asks only for the total return; mixing them confuses. | `dailyReturnPercentage` per position. |
-| D-26 | Position without `marketdata`: `marketValue` and `totalReturnPercentage` are `null`; it does not add to `totalValue`. Goes as an assumption in the README. | `null` says "we don't know"; a 0 would say "it is worth nothing" (same as D-21). Summing what has a price keeps what we do know. The API cannot create that holding (O-2), it is only defensive: it avoids a `500` if the database brings data from another source. | `"0.00"`; `totalValue: null` (erases true information); `hasUnpricedPositions` flag (YAGNI, it can be added without breaking the contract). |
-| D-27 | Idempotency in a separate table `idempotency_requests` (`userid`, `operation`, `idempotency_key`, `request_hash`, `order_id`, `response_status`, `response_body`, `UNIQUE (userid, operation, idempotency_key)`), in the same transaction as the order. Optional header. Hash over the validated input (not over the computed `size` or the market price). Same key, different body → `422`. It is the last task; if it does not fit, it goes to the README. Replaces D-3 and D-16. | The key belongs to the request, not to the order state: the retry returns the original response even if the order moved to `CANCELLED`. Core first and the mandatory functional test, because of time. D-9 still serializes simultaneous retries. | Columns in `orders` (D-16); `409` (the IETF `Idempotency-Key` draft reserves it for "in progress"); mandatory (D-3). |
+| ID | Decision | Rationale | Alternative / tradeoff |
+|----|----------|-----------|------------------------|
+| D-1 | Decimal arithmetic for money, integer shares. | Preserve the decimal values already represented by NUMERIC without binary-float conversion. | Integer cents would need boundary conversions and still a division/rounding policy. Decimal arithmetic has finite precision, not infinite exactness. |
+| D-2 | Explicit integrity, validation, consistency and correlation commitments NFR-1 through NFR-7. | These address concurrent spending, monetary representation and diagnosability in this implementation. | Rate limiting, metrics and distributed tracing are not implemented in this scope. |
+| D-3 | Idempotency proposal, superseded by D-27. | The final feature is required with an optional header. | D-27 defines the current request-replay contract. |
+| D-4 | Total return against the current holding's moving average purchase cost. | Measures the current quoted price relative to acquisition cost; the brief's previousclose describes a different, daily measure. | This is an interpretation, not a realized P&L calculation or daily return. |
+| D-5 | Moving average on buys; retain on sells while quantity is positive; reset at zero or below. | BUY 10 at 100, SELL 10, BUY 10 at 200 must leave average 200, not an average of unrelated closed holdings. | Averaging all historical buys fails this sell-out/rebuy case. |
+| D-6 | NEW LIMIT orders reserve cash or shares; cancellation releases them. | Prevent two open orders from committing the same available resources. | No reservations would allow overcommitment even before any execution. |
+| D-7 | Total value uses total cash, not available cash. | Reserved cash remains part of the account; subtracting it would undervalue the account. | Available cash is a separate spendability measure. |
+| D-8 | Invalid request: 400 without an order; admissible submission rejected by account/market conditions: stored REJECTED. | Separate request-domain errors from order outcomes the user can inspect in the response. | Malformed requests are not order resources and do not enter the ledger. |
+| D-9 | READ COMMITTED plus per-user two-integer advisory lock in send and cancel. | There is no stored balance row. Locking only existing orders misses future inserts. A waiting writer must read balances committed before it acquires the lock. | Locking the user row or SERIALIZABLE with retries are possible alternatives. The chosen lock requires every cooperating writer to use it; it also creates a same-user queue. |
+| D-10 | NestJS, Prisma with adapter-pg, transactional context, decimal.js, class-validator, Vitest and Pino; domain/application/infrastructure separation. | Keep monetary rules independently testable and adapters explicit; ambient transaction context avoids passing Prisma clients through domain ports. | Additional abstraction and ambient transaction-context overhead compared with direct controllers and queries. |
+| D-11 | ENUMs for order side/status/type, instrument type and rejection reasons. | Invalid state spellings fail at persistence, and Prisma generates corresponding types. | CHECK lists can enforce the database domain but do not provide the same generated enum model. |
+| D-12 | NOT NULL for required identity, order and quote fields, retaining deliberate unknowns. | An order without an owner or timestamp cannot support the ledger calculation. | Rejected price/size and historical cancelledAt retain explicit nullable exceptions; unused marketdata high/low/open also remain nullable. |
+| D-13 | Index orders(userid); unique marketdata(instrumentid, date). | Match user-ledger filtering and enforce one daily bar, so latest-date lookup is unambiguous. | No status-first or chronological composite index without a demonstrated access benefit; wildcard search remains unindexed at seed scale. |
+| D-14 | A historical synthetic-data experiment used EXPLAIN ANALYZE and request timing. | Seed-only planning does not characterize long account histories; the recorded experiment identified history-dependent application cost. | It is exploratory evidence, not a checked-in reproducible benchmark or a production capacity claim; see Measurement boundary. |
+| D-15 | Local development/test database and versioned migrations. | Local data is resettable; no remote migration or ownership permission is presumed. | A different database requires explicit authorization and data-compatibility checks; no automatic deployment step. |
+| D-16 | Key/hash columns on orders, superseded by D-27. | Request replay and mutable order lifecycle state have different responsibilities. | A separate request table stores the original response. |
+| D-17 | 201 for persisted FILLED, NEW and REJECTED submissions. | In all three cases an order resource was created. Status and rejectionReason describe the business result. | 200 or error statuses were considered; the choice does not make rejected submissions successful trades. |
+| D-18 | Already CANCELLED returns 200 unchanged; FILLED/REJECTED cancellation returns 409. | A timed-out cancellation can be retried to reach the already-achieved target state. | Returning 409 for an already cancelled order makes an effective retry look like an unsuccessful cancellation. |
+| D-19 | Functional HTTP tests against Testcontainers Postgres, with seeded reset between cases. | Exercise validation, adapters, SQL and transaction behavior together on isolated data. | Pure mocks cannot prove these boundaries. Container setup adds Docker and runtime cost. |
+| D-20 | Persist and return one of four named rejection reasons. | Distinguish insufficient funds, insufficient shares, missing price and a MARKET amount below a share. | Status alone cannot explain the business result. |
+| D-21 | Rejected price may be null; rejected size may be 0 or null when an amount cannot be converted without price. | Preserve unknown facts rather than inventing zero. Separate IS NOT NULL checks prevent SQL's nullable CHECK evaluation from admitting null sizes for ledger rows. | Rejected rows do not enter ledger calculations. These checks do not by themselves enforce every application input invariant. |
+| D-22 | Central guard resolves X-User-Id and checks user existence, with stable 400 codes. | Consistent challenge-only identity across endpoints; avoids a foreign-key failure or an empty portfolio for a nonexistent declared user. | This is a chosen input contract, not authentication or impersonation protection. A real auth contract must be designed separately. |
+| D-23 | Decimal strings for monetary JSON fields and displayed return percentages. | JSON numeric parsing must not introduce binary-float conversion before validation/calculation. | Share counts and identifiers remain integers, not strings for visual consistency. |
+| D-24 | Search returns an instruments wrapper, with no pagination. | A small supplied universe does not require a cursor in this delivery; the wrapper leaves room for additive metadata. | Large result sets still need a pagination policy; one is not implemented or promised. |
+| D-25 | Return total return percentage, not daily return. | Keep the portfolio's purchase-cost comparison distinct from close versus previousclose. | previousclose remains supplied data but does not enter this calculation. |
+| D-26 | Missing quote yields null market value/return and excludes that position from totalValue. | Unknown is not zero; other known values remain available, while the aggregate is partial. | External data changes can create missing quotes even if API-created MARKET holdings originally had prices. No completeness flag is implemented. |
+| D-27 | Required idempotency feature with optional UUID header; separate idempotency_requests table and migration in T12. | Save the validated-input hash and original response atomically with the order; replay survives later cancellation. Scope is user, operation and key; changed input returns 422. | Storing only the current order cannot replay the initial response. Keys are optional; requests without them are not deduplicated. |
+| D-28 | rejection_reason exists if and only if status is REJECTED. | A database CHECK rejects both rejection-without-reason and reason-on-an-accepted-order. | Application validation alone would leave externally written rows unconstrained. |
+| D-29 | One statusCode/code/message/requestId error shape, generic unexpected 500s. | Clients get stable machine codes and a support correlation value without internal stack disclosure. | A standard problem-details representation was considered; this API uses a smaller local contract. |
+| D-30 | Reject input beyond two decimals; preserve decimal intermediates; round output half up to two decimals. | Rounding input can make the checked cost disagree with the stored reservation. Averages and return are not first rounded to currency scale. | Division still uses decimal.js finite precision. Output is display-oriented and is not a full-precision financial data feed. |
+| D-31 | Bound amount/price to NUMERIC(10,2) and share counts to INT; reject a zero-share LIMIT amount with 400. | Reject unrepresentable client input before storage; with a client-specified LIMIT price, changing market state cannot make that amount buy a share. | A MARKET amount uses a price outside the request, so a below-share result is stored REJECTED. |
+| D-32 | One pure SummarizeLedgerService.run(entries) computes the ledger for send-order and portfolio. | Reuse cash, reservations and moving-average rules so displayed spendability and order checks do not drift. The service knows no current quote. | SQL replay or another module would add a different testing/ownership boundary; the existing orders domain owns this calculation. |
+| D-33 | Replay by datetime ASC, id ASC; take new datetime from the app after acquiring the user lock. | Moving averages depend on chronology. App time after waiting avoids using the transaction's earlier start time as submission time. | id breaks equal-time ties under ordinary sequence allocation; imported data, clock changes or changed sequence settings can violate broader chronological assumptions. |
+| D-34 | Preserve the seed's negative BMA holding; average and return are null. | FILLED BUY 20 minus SELL 30 equals -10. A NEW BUY of 60 is not ownership. The recorded sale added cash, so ignoring the negative position distorts valuation. | Preserving the existing data avoids silently changing reported history. New orders reject sales above available shares; short selling is not implemented. |
+| D-35 | One FILLED/NEW orders query for portfolio, then a separate quote read; no transaction or lock. | Cash and reservations share a statement snapshot without blocking writers for a view. | This does not guarantee quotes and orders represent one instant. A repeatable-read transaction could provide a stronger cross-read boundary, but is not implemented. |
+| D-36 | query parameter: missing is 400, empty/whitespace is 200 with an empty list and no query. | Detect misspelled/missing parameters without treating a cleared search box as a database request. | Returning every instrument on an empty search or treating missing and empty alike would be different API choices. |
+| D-37 | Exclude MONEDA in search and reject it in order submission. | Cash is modeled as an instrument for ledger transfers, not as an asset to buy with itself here. | The predicate is an exclusion, not a guarantee that any future instrument type is supported by order rules. |
+| D-38 | Rank exact ticker, ticker prefix, name prefix, then substring; stable ticker/id ties. | Prefer identifier matches while still supporting name lookup, using simple SQL rather than an extension. | This is a deterministic relevance policy, not a claim about every broker's search behavior. Fuzzy similarity is excluded. |
+| D-39 | Nullable cancelled_at set by the app after the lock; historical cancelled rows retain unknown time. | Preserve the actual cancellation time for newly cancelled orders without fabricating seed history. CHECK allows a timestamp only on CANCELLED rows. | This improves investigation but cannot reconstruct all historical reservations where timestamps or external history are missing; it is not a complete audit/event log. |
+| D-40 | Server UUID per request; X-Request-Id and error-body requestId; server-side error stacks and one committed outcome log per new placement/cancel, without balances. | A rejection is 201, so an outcome log explains it; a request ID distinguishes requests even when identity validation fails. Client IDs are not reused. | Chosen observability, not an extra brief requirement. Parser failures get a fallback ID/log path; replay does not create another placement log. |
 
-## Database changes
+## Database changes and boundaries
 
-| Change | Decision |
-|--------|----------|
-| ENUM for `side`, `status`, `type`, `rejection_reason` | D-11, D-20 |
-| `NOT NULL` + `CHECK (size > 0 OR status = 'REJECTED')` + `CHECK (price IS NOT NULL OR status = 'REJECTED')` | D-12, D-21 |
-| `rejection_reason` column in `orders` | D-20 |
-| `idempotency_requests` table (cuttable) | D-27 |
-| Indexes `orders(userid, …)` and `marketdata(instrumentid, date)` | D-13 |
+The baseline migration matches the original tables. `20261101000000_cocos_schema` adds integrity changes; `20261102000000_idempotency_requests` adds request replay storage.
 
-## Out of scope
+| Change | Purpose / boundary |
+|--------|--------------------|
+| ENUMs and required fields | Required user/instrument/order fields and quote identity/date/close/previousclose cannot be null. marketdata high/low/open remain nullable. |
+| Nullable order price and size | Required for every non-REJECTED row, with positive size for those rows. Rejected unknowns follow D-21. There is no database CHECK requiring a positive price. |
+| rejection_reason CHECK | Exactly REJECTED rows carry a reason. Seed order 6 is backfilled to INSUFFICIENT_SHARES from its attempted sale of 100 when the holding was 40. |
+| cancelled_at CHECK | A non-null timestamp implies CANCELLED; the converse is deliberately not required for historical seed rows. |
+| orders(userid) index | Supports reading the relevant history for one user. |
+| Unique marketdata(instrumentid, date) | Enforces one daily bar; the supplied date has no intraday time. |
+| idempotency_requests | Stores user/operation/key, SHA-256 request hash, order ID, response status and JSON body; unique user/operation/key, with user/order foreign keys. |
 
-| ID | What | Why |
-|----|-----|---------|
-| O-1 | Authentication; the user comes in the `X-User-Id` header (D-22) | The brief: "User authentication does NOT need to be implemented". |
-| O-2 | Executing `NEW` LIMIT when the price arrives | "There is NO need to simulate the market". |
-| O-3 | Partial fills | Only `FILLED` exists, all or nothing. |
-| O-4 | Fees and taxes | There is no fee data; inventing a rate would be arbitrary. |
-| O-5 | T+1 settlement and market hours | MARKET executes on submission. |
-| O-6 | Other currencies | "Prices… must be in pesos". |
-| O-7 | Realized P&L and FIFO lots | The brief asks only for total return. |
-| O-8 | Transfer endpoints | Transfers are the CASH_IN/OUT orders of the seed. |
-| O-9 | Fuzzy search (tolerating typos) | Dozens of instruments; the README names the threshold for `pg_trgm`. Pagination is optional (D-24). |
-| O-10 | Rate limiting, metrics, tracing | Without auth they protect nothing per user; they go to the README. |
+The constraints reject particular malformed rows, not every possible overspend or lifecycle change. Cross-order resource checks remain application logic under the cooperating per-user lock. No trigger enforces immutability or prevents every out-of-band write.
 
-**Cut list, in order:** idempotency (D-27), REST Client collection (`.http`), cursor pagination (D-24), D-14 measurement.
+## Seed assumptions
 
-## Seed pitfalls
+- CASH_IN/CASH_OUT use integer size with price 1, so seeded transfers are whole pesos; no transfer endpoint is implemented.
+- Instruments 3, 10 and 66 have no marketdata in the supplied seed. Missing-quote handling remains necessary for external/imported or subsequently changed data.
+- User 1's instrument 31 has the inherited negative holding described in D-34; it is not silently corrected or interpreted as a short-selling feature.
+- Lowercase SQL columns use Prisma mappings. The brief names marketdata.datetime, but the actual DDL supplies marketdata.date DATE, which is used for latest-price selection.
 
-- `orders.size` is `INT`: CASH_IN/OUT amounts are whole pesos.
-- Instruments without `marketdata`: 3 (PGR), 10 (IRCP) and 66 (ARS).
-- User 1, instrument 31: BUY 20 + SELL 30, both `FILLED`. Holding −10. It is a seed inconsistency: it is shown as is and documented.
-- Lowercase columns (`instrumentid`, `previousclose`): Prisma needs `db pull` + `@map`.
+## Measurement boundary and known limitations
 
-## Questions for Emi
+A recorded development-session experiment used synthetic histories, EXPLAIN ANALYZE with/without the user index, request timings, and a CPU profile. It indicated that mapping and decimal replay cost grows with per-user history. The initial generated status mix was incorrect and marketdata was empty; a later profile corrected the status mix. The scripts and raw outputs are not checked into this delivery, and the experiment was not reproduced during this documentation reconciliation. It is exploratory evidence, not a reproducible capacity benchmark. POST throughput, same-user contention and production load were not established by it.
 
-| # | Question | Assumption if no answer |
-|---|----------|-------------------------|
-| 1 | Is the Neon database only mine? Can I run migrations there? | It is shared: migrations only locally (D-15). |
-| 2 | Is "total return" against the average purchase price or against the previous close? | Moving average price (D-4, D-5). |
-| 3 | An amount that does not reach one share: `REJECTED` or an error without saving? | `REJECTED` (D-8). |
+- Ledger replay cost grows with history; no balance snapshot or cache is implemented.
+- Portfolio quotes and ledger lack a global snapshot; displayed averages/returns are rounded outputs, not full-precision inputs for another calculation.
+- Writers waiting for the same user lock retain database connections. Heavy contention may exhaust pool/transaction waits and return a generic 500; no untested default timeout or throughput is promised here.
+- Shutdown hooks do not fully drain in-flight HTTP work before database disconnect.
+- Location from order creation has no GET route; order history and search pagination are absent.
 
-## Next step
+## Out of scope and delivery cuts
 
-Write `docs/tasks/TASKS.md` (written by the user, coach phase 5): ordered tasks, size S, each with the names of its tests and the list of which can run in parallel.
+| ID | Excluded capability | Reason / distinction |
+|----|---------------------|----------------------|
+| O-1 | Authentication | Explicitly unnecessary in the brief; declared X-User-Id is not production security. |
+| O-2 | Market simulation, automatic LIMIT fills and expiry | No market simulation required; open orders reserve until cancellation. |
+| O-3 | Partial fills | Only all-or-nothing fills are modeled. |
+| O-4 | Fees and taxes | No fee model is supplied; none is invented. |
+| O-5 | Settlement delay and market hours | MARKET fills immediately in this exercise. |
+| O-6 | Other currencies | The brief requires ARS prices. |
+| O-7 | Realized P&L and FIFO lots | Outside the selected total-return view. |
+| O-8 | Transfer endpoints | CASH_IN/CASH_OUT are supplied ledger movements, not API operations. |
+| O-9 | Fuzzy search | Substring/prefix ranking covers this delivery; no similarity extension or threshold is claimed. |
+| O-10 | Rate limiting, metrics and distributed tracing | Useful for availability and production diagnosis, but outside this delivery scope. |
+
+Idempotency and cancellation are delivered, not active cuts. The optional request collection is supplied as Postman rather than a REST Client file. Cursor pagination is not built. Measurement has the exploratory boundary above; it must not be described as either never attempted or production-proven.
