@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
@@ -9,7 +8,7 @@ import { PrismaModule } from '@/shared/infrastructure/prisma/prisma.module';
 import { TransactionsModule } from '@/shared/infrastructure/transactions/transactions.module';
 import { HttpExceptionFilter } from '@/shared/infrastructure/http/http-exception.filter';
 import { JsonBodyGuard } from '@/shared/infrastructure/http/json-body.guard';
-import { LOG_REDACT_PATHS } from '@/shared/infrastructure/http/log-redact-paths';
+import { buildPinoHttpOptions } from '@/shared/infrastructure/http/pino-http-options';
 import { UserIdGuard } from '@/shared/infrastructure/http/user-id.guard';
 import { UsersModule } from '@/shared/infrastructure/users/users.module';
 
@@ -23,22 +22,7 @@ const env = process.env.NODE_ENV;
     OrdersModule,
     InstrumentsModule,
     PortfolioModule,
-    LoggerModule.forRoot({
-      pinoHttp: {
-        // Our own id per request; an incoming X-Request-Id is ignored.
-        genReqId: (_req, res) => {
-          const id = randomUUID();
-          res.setHeader('X-Request-Id', id);
-          return id;
-        },
-        redact: LOG_REDACT_PATHS,
-        level: env === 'test' ? 'silent' : 'info',
-        transport:
-          env === 'production' || env === 'test'
-            ? undefined
-            : { target: 'pino-pretty' },
-      },
-    }),
+    LoggerModule.forRoot({ pinoHttp: buildPinoHttpOptions(env) }),
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
