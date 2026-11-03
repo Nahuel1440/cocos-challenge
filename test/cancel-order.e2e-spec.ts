@@ -1,7 +1,16 @@
 import type { INestApplication } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { Client } from 'pg';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import { createTestApp } from './support/create-test-app';
 import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
@@ -15,6 +24,39 @@ const LARGE_LIMIT_BUY = { type: 'LIMIT', size: 6000, price: '100.00' };
 const SEED_ORDER_IDS = {
   filled: 2,
   rejected: 6,
+};
+
+const LEDGER_LOCK_NAMESPACE = 1;
+const LOCK_POLL_LIMIT_MS = 5000;
+const LOCK_TEST_TIMEOUT_MS = 10000;
+const LOCK_POLL_INTERVAL_MS = 25;
+
+const countLedgerLockWaiters = async (client: Client, userId: number) => {
+  const { rows } = await client.query<{ waiters: number }>(
+    `SELECT count(*)::int AS waiters FROM pg_locks
+     WHERE locktype = 'advisory' AND NOT granted
+       AND classid = $1 AND objid = $2 AND objsubid = 2`,
+    [LEDGER_LOCK_NAMESPACE, userId],
+  );
+  return rows[0]!.waiters;
+};
+
+const storedStatus = async (client: Client, orderId: number) => {
+  const { rows } = await client.query<{ status: string }>(
+    'SELECT status FROM public.orders WHERE id = $1',
+    [orderId],
+  );
+  return rows[0]!.status;
+};
+
+const waitForLedgerLockWaiters = async (client: Client, userId: number) => {
+  const deadline = Date.now() + LOCK_POLL_LIMIT_MS;
+  let waiters = await countLedgerLockWaiters(client, userId);
+  while (waiters === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_INTERVAL_MS));
+    waiters = await countLedgerLockWaiters(client, userId);
+  }
+  return waiters;
 };
 
 describe('POST /orders/:id/cancel', () => {
@@ -53,6 +95,17 @@ describe('POST /orders/:id/cancel', () => {
     expect(response.body.cancelledAt).toEqual(expect.any(String));
   });
 
+  it('should ignore the request body and return 200 when the cancel request carries a text/plain body', async () => {
+    const placed = await sendOrder({ type: 'LIMIT', size: 1, price: '100.00' });
+
+    const response = await cancel(placed.body.id)
+      .set('Content-Type', 'text/plain')
+      .send('ignored');
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('CANCELLED');
+  });
+
   it('should return 200 with the order unchanged when it is already CANCELLED', async () => {
     const placed = await sendOrder({ type: 'LIMIT', size: 1, price: '100.00' });
     const first = await cancel(placed.body.id).expect(200);
@@ -61,6 +114,17 @@ describe('POST /orders/:id/cancel', () => {
 
     expect(retry.status).toBe(200);
     expect(retry.body).toEqual(first.body);
+  });
+
+  it('should reject with 400 VALIDATION_ERROR when the cancel id has leading zeros', async () => {
+    const response = await cancel(`000${SEED_ORDER_IDS.filled}`).expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('id'),
+      requestId: response.headers['x-request-id'],
+    });
   });
 
   it('should return 409 when the order is FILLED', async () => {
@@ -134,6 +198,48 @@ describe('POST /orders/:id/cancel', () => {
     const fitsNow = await sendOrder(sellAll).expect(201);
     expect(fitsNow.body.status).toBe('NEW');
   });
+
+  it(
+    'should wait for the ledger lock before cancelling',
+    async () => {
+      const placed = await sendOrder({
+        type: 'LIMIT',
+        size: 1,
+        price: '100.00',
+      }).expect(201);
+      const holder = new Client({ connectionString: inject('databaseUrl') });
+      await holder.connect();
+      let answered = false;
+      let cancelling: Promise<request.Response> | undefined;
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [
+          LEDGER_LOCK_NAMESPACE,
+          Number(OWNER),
+        ]);
+
+        cancelling = cancel(placed.body.id).then((response) => {
+          answered = true;
+          return response;
+        });
+        const waiters = await waitForLedgerLockWaiters(holder, Number(OWNER));
+        expect(waiters).toBe(1);
+        expect(answered).toBe(false);
+        expect(await storedStatus(holder, placed.body.id)).toBe('NEW');
+
+        await holder.query('COMMIT');
+        const response = await cancelling;
+
+        expect(response.status).toBe(200);
+        expect(response.body.status).toBe('CANCELLED');
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        await cancelling?.catch(() => undefined);
+        await holder.end();
+      }
+    },
+    LOCK_TEST_TIMEOUT_MS,
+  );
 
   it('should fill the buy or reject it with INSUFFICIENT_FUNDS, consistent with the final cash, when a cancel of a NEW LIMIT buy and a MARKET buy run concurrently', async () => {
     const AVAILABLE_CASH_BEFORE = new Decimal('627500.00');

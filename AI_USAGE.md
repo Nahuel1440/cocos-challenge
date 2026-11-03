@@ -54,3 +54,5 @@ I used two personal workflow skills:
 - **`orquestador`:** coordinated dependencies, handoffs and reports across implementation sessions.
 
 During development, project-specific **`backend-ddd`, `unit-testing` and `e2e-testing` skills** also recorded conventions: where responsibilities belonged, testing observable behavior, decimal assertions, and exercising HTTP/database boundaries. They helped make instructions repeatable; they did not replace tests or review. Those instructions were revised as the implementation evolved.
+
+Project instructions were later simplified: backend-ddd and e2e-testing were removed, while unit-testing remains in the delivered repository. The earlier usage above describes development history, not the current skill inventory.

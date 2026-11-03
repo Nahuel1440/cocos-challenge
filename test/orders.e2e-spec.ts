@@ -1,6 +1,15 @@
 import type { INestApplication } from '@nestjs/common';
+import { Client } from 'pg';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import {
   ORDER_REPOSITORY,
   type OrderRepository,
@@ -44,7 +53,7 @@ describe('POST /orders', () => {
     await reloadSeed();
   });
 
-  it('should return 201 FILLED with a Location when a MARKET BUY has enough cash', async () => {
+  it('should return 201 FILLED when a MARKET BUY has enough cash', async () => {
     const response = await request(app.getHttpServer())
       .post('/orders')
       .set('X-User-Id', USER_WITH_CASH)
@@ -57,7 +66,112 @@ describe('POST /orders', () => {
       .expect(201);
 
     expect(response.body.status).toBe('FILLED');
-    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+    expect(response.headers.location).toBeUndefined();
+  });
+
+  it('should reject with 400 VALIDATION_ERROR when the body has an unknown field', async () => {
+    const client = new Client({ connectionString: inject('databaseUrl') });
+    await client.connect();
+    const countOrders = async () => {
+      const { rows } = await client.query<{ total: number }>(
+        'SELECT count(*)::int AS total FROM public.orders',
+      );
+      return rows[0]!.total;
+    };
+    const ordersBefore = await countOrders();
+
+    const response = await sendOrder({
+      type: 'MARKET',
+      size: 1,
+      limit_price: '1.00',
+    } as OrderBody).expect(400);
+    const ordersAfter = await countOrders();
+    await client.end();
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('limit_price'),
+      requestId: response.headers['x-request-id'],
+    });
+    expect(ordersAfter).toBe(ordersBefore);
+  });
+
+  it('should not return a Location header when an order is created', async () => {
+    const response = await sendOrder({ type: 'MARKET', size: 1 }).expect(201);
+
+    expect(response.headers.location).toBeUndefined();
+  });
+
+  it('should accept a JSON body when the Content-Type carries a charset', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('X-User-Id', USER_WITH_CASH)
+      .set('Content-Type', 'application/json; charset=utf-8')
+      .send(
+        JSON.stringify({
+          instrumentId: INSTRUMENT_ID,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        }),
+      );
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('FILLED');
+  });
+
+  it('should reject with 415 UNSUPPORTED_MEDIA_TYPE when POST /orders is sent as text/plain', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('X-User-Id', USER_WITH_CASH)
+      .set('Content-Type', 'text/plain')
+      .send(
+        JSON.stringify({
+          instrumentId: INSTRUMENT_ID,
+          side: 'BUY',
+          type: 'MARKET',
+          size: 1,
+        }),
+      )
+      .expect(415);
+
+    expect(response.body).toEqual({
+      statusCode: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: expect.any(String),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
+  it('should return 400 MISSING_USER_ID before 415 when text/plain comes without X-User-Id', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Content-Type', 'text/plain')
+      .send('not json')
+      .expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'MISSING_USER_ID',
+      message: expect.any(String),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
+  it('should reject with 415 when the JSON charset is not supported, even without X-User-Id', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Content-Type', 'application/json; charset=latin1')
+      .send('{}')
+      .expect(415);
+
+    expect(response.body).toEqual({
+      statusCode: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: expect.any(String),
+      requestId: response.headers['x-request-id'],
+    });
   });
 
   it('should return 400 VALIDATION_ERROR when both size and amount are sent', async () => {
@@ -318,7 +432,7 @@ describe('POST /orders', () => {
     expect(response.body.code).toBe('VALIDATION_ERROR');
   });
 
-  it('should return 201 NEW with a Location when a LIMIT BUY has enough cash', async () => {
+  it('should return 201 NEW when a LIMIT BUY has enough cash', async () => {
     const response = await sendOrder({
       type: 'LIMIT',
       size: 1,
@@ -327,10 +441,10 @@ describe('POST /orders', () => {
 
     expect(response.status).toBe(201);
     expect(response.body.status).toBe('NEW');
-    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+    expect(response.headers.location).toBeUndefined();
   });
 
-  it('should return 201 REJECTED with a Location when a MARKET BUY has too little cash', async () => {
+  it('should return 201 REJECTED when a MARKET BUY has too little cash', async () => {
     const SIZE_ABOVE_CASH = 1000000;
 
     const response = await sendOrder({ type: 'MARKET', size: SIZE_ABOVE_CASH });
@@ -338,7 +452,7 @@ describe('POST /orders', () => {
     expect(response.status).toBe(201);
     expect(response.body.status).toBe('REJECTED');
     expect(response.body.rejectionReason).toBe('INSUFFICIENT_FUNDS');
-    expect(response.headers.location).toBe(`/orders/${response.body.id}`);
+    expect(response.headers.location).toBeUndefined();
   });
 
   const storedSize = async (orderId: number) => {

@@ -53,9 +53,15 @@ These are the implementation's explicit design commitments, not additional requi
 
 ### Identity and errors
 
-All routes use the declared `X-User-Id` identity. Missing, malformed or unknown users return `400` with `MISSING_USER_ID`, `INVALID_USER_ID` or `UNKNOWN_USER`. This is not authentication: a client can impersonate another user. Ownership checks only apply to the declared identity.
+All routes use the declared `X-User-Id` identity. Missing, malformed or unknown users return `400` with `MISSING_USER_ID`, `INVALID_USER_ID` or `UNKNOWN_USER`. This is not authentication: a client can impersonate another user. Ownership checks only apply to the declared identity. X-User-Id and the cancel-path order ID use canonical integer strings without leading zeros; for example, 0001 returns 400. Order IDs must be in 1..2147483647; user existence is checked after header-format validation.
 
-Errors use `{ statusCode, code, message, requestId }`. A request ID is also returned in `X-Request-Id`. Invalid order fields use `400 VALIDATION_ERROR`; unexpected errors use `500 INTERNAL_ERROR` with a generic message, with details logged server-side. Body parsing happens before the guard: malformed JSON is `400 VALIDATION_ERROR`, and an oversized body is `413 PAYLOAD_TOO_LARGE`, even without the identity header.
+Errors use `{ statusCode, code, message, requestId }`. A request ID is also returned in `X-Request-Id`. Invalid order fields use `400 VALIDATION_ERROR`; unexpected errors use `500 INTERNAL_ERROR` with a generic message, with details logged server-side. Body parsing happens before identity validation: malformed JSON is `400 VALIDATION_ERROR`, an oversized parsed body is `413 PAYLOAD_TOO_LARGE`, and unsupported charset or Content-Encoding is `415 UNSUPPORTED_MEDIA_TYPE`, even without the identity header.
+
+For POST /orders with a body, JsonBodyGuard requires application/json after the user guard. A nonempty text/plain body therefore yields 415 for a valid user, but a missing identity yields 400 MISSING_USER_ID first. application/json with a supported charset is accepted. An empty body without Content-Type reaches field validation and returns 400. An oversized form body can fail parsing with 413 before the media-type guard. Other routes do not use the order-body guard: their body is unused unless global parsing rejects it.
+
+Unknown ordinary fields in the order body or GET /instruments query are rejected with 400 VALIDATION_ERROR. Other routes ignore unknown query parameters. Framework transformation strips/skips prototype-related names such as __proto__, constructor and inherited methods such as toString before validation; those names do not become order fields and need not cause 400. This is an exception to unknown-field rejection, not an additional accepted business field.
+
+Request logging redacts req.headers.authorization, req.headers.cookie and res.headers["set-cookie"]. Shared configureApp wiring installs the logger and disables X-Powered-By in both production bootstrap and the HTTP test harness.
 
 ### GET /portfolio
 
@@ -63,11 +69,11 @@ Returns `200` with `totalValue`, `availableCash` and `positions`. Each position 
 
 ### GET /instruments?query=
 
-Trimmed, case-insensitive ticker/name search using escaped ILIKE patterns, excluding MONEDA. Missing query returns `400 VALIDATION_ERROR`; empty or whitespace-only input returns `200` with `{ "instruments": [] }` without a database call. Results rank exact ticker, ticker prefix, name prefix, then substring; ties sort by ticker and id. There is no pagination.
+Case-insensitive ticker/name search using escaped ILIKE patterns, excluding MONEDA. The submitted query must be a string of at most 100 characters with no NUL character; these checks run before trimming. Unknown ordinary query parameters are rejected as described above. Valid text is then trimmed. Missing query returns `400 VALIDATION_ERROR`; empty or whitespace-only input returns `200` with `{ "instruments": [] }` without a database call. Results rank exact ticker, ticker prefix, name prefix, then substring; ties sort by ticker and id. There is no pagination.
 
 ### POST /orders
 
-Body: `instrumentId`, `side` (BUY/SELL), `type` (MARKET/LIMIT), exactly one of `size` or `amount`, and `price` for LIMIT only. Idempotency-Key is an optional UUID header.
+For a nonempty request, Content-Type must be application/json. Body: `instrumentId`, `side` (BUY/SELL), `type` (MARKET/LIMIT), exactly one of `size` or `amount`, and `price` for LIMIT only. Idempotency-Key is an optional UUID header. Ordinary extra fields are rejected; media-type and parser ordering follows Identity and errors.
 
 - instrumentId and size must be integers in 1..2147483647; the instrument must exist and not be MONEDA.
 - amount and price are decimal strings in 0.01..99999999.99 with at most two decimals. MARKET must omit price; LIMIT must include it.
@@ -83,9 +89,9 @@ Body: `instrumentId`, `side` (BUY/SELL), `type` (MARKET/LIMIT), exactly one of `
 | MARKET amount buys zero shares | 201, REJECTED with AMOUNT_BELOW_ONE_SHARE | size is 0 |
 | Same user's key and matching input | Original response, Idempotent-Replayed: true | No additional order |
 | Same key, different validated input | 422 IDEMPOTENCY_KEY_CONFLICT | No additional order |
-| Invalid request | 400 VALIDATION_ERROR | No order or consumed key |
+| Invalid fields or input values | 400 VALIDATION_ERROR | No order or consumed key |
 
-Creation responses include `Location: /orders/:id`, although no GET route exists there. This is a documented API limitation, not a usable retrieval link.
+Creation and replay responses do not include a Location header. There is no order-retrieval or history endpoint.
 
 ### POST /orders/:id/cancel
 
@@ -100,7 +106,7 @@ Cancellation releases a reservation through the derived ledger; it does not upda
 
 ## Submission and transaction flow
 
-1. The HTTP boundary validates identity, fields and optional key; the use case verifies the instrument is tradable.
+1. Global parsers run first, then identity validation, the POST /orders JSON-body guard and field/key validation. The use case verifies the instrument is tradable.
 2. `UnitOfWork.run(work)` starts a READ COMMITTED transaction. The callback explicitly calls `orders.lockLedger(userId)` before reading the ledger or idempotency record: `pg_advisory_xact_lock(1, userId)`.
 3. For an existing key, compare the hash of the validated input and replay the saved response, or raise the 422 conflict. This happens before recomputing balance or price.
 4. Otherwise read FILLED and NEW entries, obtain the price, replay the ledger chronologically, derive size, and apply order rules. Missing price takes precedence over size/funds checks; size 0 on MARKET precedes insufficient-funds checks.
@@ -134,25 +140,25 @@ Cancellation uses the same UoW callback and lock before loading the owned order.
 | D-19 | Functional HTTP tests against Testcontainers Postgres, with seeded reset between cases. | Exercise validation, adapters, SQL and transaction behavior together on isolated data. | Pure mocks cannot prove these boundaries. Container setup adds Docker and runtime cost. |
 | D-20 | Persist and return one of four named rejection reasons. | Distinguish insufficient funds, insufficient shares, missing price and a MARKET amount below a share. | Status alone cannot explain the business result. |
 | D-21 | Rejected price may be null; rejected size may be 0 or null when an amount cannot be converted without price. | Preserve unknown facts rather than inventing zero. Separate IS NOT NULL checks prevent SQL's nullable CHECK evaluation from admitting null sizes for ledger rows. | Rejected rows do not enter ledger calculations. These checks do not by themselves enforce every application input invariant. |
-| D-22 | Central guard resolves X-User-Id and checks user existence, with stable 400 codes. | Consistent challenge-only identity across endpoints; avoids a foreign-key failure or an empty portfolio for a nonexistent declared user. | This is a chosen input contract, not authentication or impersonation protection. A real auth contract must be designed separately. |
+| D-22 | Central guard resolves canonical X-User-Id without leading zeros and checks user existence, with stable 400 codes. Cancel-path IDs also reject leading zeros. | Consistent challenge-only identity across endpoints; avoids a foreign-key failure or an empty portfolio for a nonexistent declared user. | This is a chosen input contract, not authentication or impersonation protection. A real auth contract must be designed separately. |
 | D-23 | Decimal strings for monetary JSON fields and displayed return percentages. | JSON numeric parsing must not introduce binary-float conversion before validation/calculation. | Share counts and identifiers remain integers, not strings for visual consistency. |
 | D-24 | Search returns an instruments wrapper, with no pagination. | A small supplied universe does not require a cursor in this delivery; the wrapper leaves room for additive metadata. | Large result sets still need a pagination policy; one is not implemented or promised. |
 | D-25 | Return total return percentage, not daily return. | Keep the portfolio's purchase-cost comparison distinct from close versus previousclose. | previousclose remains supplied data but does not enter this calculation. |
 | D-26 | Missing quote yields null market value/return and excludes that position from totalValue. | Unknown is not zero; other known values remain available, while the aggregate is partial. | External data changes can create missing quotes even if API-created MARKET holdings originally had prices. No completeness flag is implemented. |
 | D-27 | Required idempotency feature with optional UUID header; separate idempotency_requests table and migration in T12. | Save the validated-input hash and original response atomically with the order; replay survives later cancellation. Scope is user, operation and key; changed input returns 422. | Storing only the current order cannot replay the initial response. Keys are optional; requests without them are not deduplicated. |
 | D-28 | rejection_reason exists if and only if status is REJECTED. | A database CHECK rejects both rejection-without-reason and reason-on-an-accepted-order. | Application validation alone would leave externally written rows unconstrained. |
-| D-29 | One statusCode/code/message/requestId error shape, generic unexpected 500s. | Clients get stable machine codes and a support correlation value without internal stack disclosure. | A standard problem-details representation was considered; this API uses a smaller local contract. |
+| D-29 | One statusCode/code/message/requestId error shape, generic unexpected 500s, and preserved parser 400/413/415 statuses. POST /orders checks JSON media type after identity validation. | Clients get stable codes and correlation without internal stacks. Ordinary extra order fields/search parameters fail validation; prototype-related transformation exceptions are documented in HTTP contract. | Global parsing can reject a request before either guard; a media-type or unknown-field rule must not be described without that scope/order. |
 | D-30 | Reject input beyond two decimals; preserve decimal intermediates; round output half up to two decimals. | Rounding input can make the checked cost disagree with the stored reservation. Averages and return are not first rounded to currency scale. | Division still uses decimal.js finite precision. Output is display-oriented and is not a full-precision financial data feed. |
 | D-31 | Bound amount/price to NUMERIC(10,2) and share counts to INT; reject a zero-share LIMIT amount with 400. | Reject unrepresentable client input before storage; with a client-specified LIMIT price, changing market state cannot make that amount buy a share. | A MARKET amount uses a price outside the request, so a below-share result is stored REJECTED. |
 | D-32 | One pure SummarizeLedgerService.run(entries) computes the ledger for send-order and portfolio. | Reuse cash, reservations and moving-average rules so displayed spendability and order checks do not drift. The service knows no current quote. | SQL replay or another module would add a different testing/ownership boundary; the existing orders domain owns this calculation. |
 | D-33 | Replay by datetime ASC, id ASC; take new datetime from the app after acquiring the user lock. | Moving averages depend on chronology. App time after waiting avoids using the transaction's earlier start time as submission time. | id breaks equal-time ties under ordinary sequence allocation; imported data, clock changes or changed sequence settings can violate broader chronological assumptions. |
 | D-34 | Preserve the seed's negative BMA holding; average and return are null. | FILLED BUY 20 minus SELL 30 equals -10. A NEW BUY of 60 is not ownership. The recorded sale added cash, so ignoring the negative position distorts valuation. | Preserving the existing data avoids silently changing reported history. New orders reject sales above available shares; short selling is not implemented. |
 | D-35 | One FILLED/NEW orders query for portfolio, then a separate quote read; no transaction or lock. | Cash and reservations share a statement snapshot without blocking writers for a view. | This does not guarantee quotes and orders represent one instant. A repeatable-read transaction could provide a stronger cross-read boundary, but is not implemented. |
-| D-36 | query parameter: missing is 400, empty/whitespace is 200 with an empty list and no query. | Detect misspelled/missing parameters without treating a cleared search box as a database request. | Returning every instrument on an empty search or treating missing and empty alike would be different API choices. |
+| D-36 | query is a string of at most 100 characters before trimming, without NUL. Missing/invalid input or ordinary unknown search parameters is 400; valid empty/whitespace is 200 with an empty list and no query. | Detect misspelled/missing parameters without treating a cleared search box as a database request. | Returning every instrument on an empty search or treating missing and empty alike would be different API choices. |
 | D-37 | Exclude MONEDA in search and reject it in order submission. | Cash is modeled as an instrument for ledger transfers, not as an asset to buy with itself here. | The predicate is an exclusion, not a guarantee that any future instrument type is supported by order rules. |
 | D-38 | Rank exact ticker, ticker prefix, name prefix, then substring; stable ticker/id ties. | Prefer identifier matches while still supporting name lookup, using simple SQL rather than an extension. | This is a deterministic relevance policy, not a claim about every broker's search behavior. Fuzzy similarity is excluded. |
 | D-39 | Nullable cancelled_at set by the app after the lock; historical cancelled rows retain unknown time. | Preserve the actual cancellation time for newly cancelled orders without fabricating seed history. CHECK allows a timestamp only on CANCELLED rows. | This improves investigation but cannot reconstruct all historical reservations where timestamps or external history are missing; it is not a complete audit/event log. |
-| D-40 | Server UUID per request; X-Request-Id and error-body requestId; server-side error stacks and one committed outcome log per new placement/cancel, without balances. | A rejection is 201, so an outcome log explains it; a request ID distinguishes requests even when identity validation fails. Client IDs are not reused. | Chosen observability, not an extra brief requirement. Parser failures get a fallback ID/log path; replay does not create another placement log. |
+| D-40 | Server UUID per request; X-Request-Id and error-body requestId; server-side error stacks and one committed outcome log per new placement/cancel, without balances. Redact Authorization/Cookie/Set-Cookie in request logs; disable X-Powered-By through shared app configuration. | A rejection is 201, so an outcome log explains it; a request ID distinguishes requests even when identity validation fails. Client IDs are not reused. | Chosen observability, not an extra brief requirement. Parser failures get a fallback ID/log path; replay does not create another placement log. |
 
 ## Database changes and boundaries
 
@@ -185,7 +191,7 @@ A recorded development-session experiment used synthetic histories, EXPLAIN ANAL
 - Portfolio quotes and ledger lack a global snapshot; displayed averages/returns are rounded outputs, not full-precision inputs for another calculation.
 - Writers waiting for the same user lock retain database connections. Heavy contention may exhaust pool/transaction waits and return a generic 500; no untested default timeout or throughput is promised here.
 - Shutdown hooks do not fully drain in-flight HTTP work before database disconnect.
-- Location from order creation has no GET route; order history and search pagination are absent.
+- Order retrieval/history and search pagination are absent; creation/replay sends no Location header.
 
 ## Out of scope and delivery cuts
 

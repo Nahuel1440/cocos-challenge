@@ -23,7 +23,7 @@ export class UserIdGuard implements CanActivate {
     if (raw === undefined) {
       throw new MissingUserIdException();
     }
-    if (!/^\d+$/.test(raw) || Number(raw) > POSTGRES_INT_MAX) {
+    if (!/^(0|[1-9]\d*)$/.test(raw) || Number(raw) > POSTGRES_INT_MAX) {
       throw new InvalidUserIdException();
     }
     if (!(await this.users.searchExistsById(Number(raw)))) {

@@ -20,8 +20,8 @@ The layout is domain, application and infrastructure, with HTTP adapters inside 
 
 ### T1 · App skeleton
 - **Acceptance:** NestJS app wiring, Pino, validation, test runners, lint/type/build commands.
-- **Source:** `package.json`, `tsconfig.json`, `vitest.config.mts`, `vitest.config.e2e.mts`, `src/main.ts`, `src/app.module.ts`.
-- **Evidence:** `test/app-wiring.e2e-spec.ts`. These tests exercise runtime wiring; static verification commands are listed in the README.
+- **Source:** `package.json`, `tsconfig.json`, `vitest.config.mts`, `vitest.config.e2e.mts`, `src/main.ts`, `src/app.module.ts`, `src/shared/infrastructure/http/configure-app.ts`, `src/shared/infrastructure/http/pino-http-options.ts`.
+- **Evidence:** `test/app-wiring.e2e-spec.ts`. The production bootstrap and `test/support/create-test-app.ts` both call configureApp; app-wiring assertions include no X-Powered-By. Static verification commands are listed in the README.
 - **Dependency:** none.
 
 ### T2 · Local Postgres and migrations
@@ -38,11 +38,11 @@ The layout is domain, application and infrastructure, with HTTP adapters inside 
 - **Dependency:** T2.
 
 ### T4 · Identity, validation, errors and request correlation
-- **Acceptance:** every route resolves declared X-User-Id and rejects missing/malformed/unknown users; errors have statusCode/code/message/requestId, unexpected stacks stay server-side, and responses expose X-Request-Id. This is not authentication.
+- **Acceptance:** every route resolves declared X-User-Id and rejects missing/malformed/unknown users; errors have statusCode/code/message/requestId, unexpected stacks stay server-side, and responses expose X-Request-Id. Header IDs reject leading zeros. This is not authentication. Shared app configuration disables X-Powered-By; request logging redacts authorization/cookie/set-cookie headers.
 - **Source:** `src/shared/infrastructure/http/`, `src/shared/domain/`, `src/app.module.ts`.
-- **Evidence:** `test/app-wiring.e2e-spec.ts`, `test/request-id.e2e-spec.ts`, `src/shared/infrastructure/http/__tests__/http-exception.filter.spec.ts`.
+- **Evidence:** `test/app-wiring.e2e-spec.ts`, `test/request-id.e2e-spec.ts`, `src/shared/infrastructure/http/__tests__/http-exception.filter.spec.ts`, `src/shared/infrastructure/http/__tests__/pino-http-options.spec.ts`.
 - **Retained named criteria:** `should return the request id in the X-Request-Id header and the error body when a request fails`; `should log the error with its stack and hide it from the response when an unexpected error occurs`.
-- **Boundary:** parser errors precede the user guard and preserve their status, including oversized-body 413; an incoming request ID is not trusted as the server correlation ID.
+- **Boundary:** parser errors precede the user guard and preserve 400/413/415 as applicable; the order-body media-type guard runs after identity validation. An incoming request ID is not trusted as the server correlation ID.
 - **Dependency:** T1.
 
 ### T13 · Shared ledger summary
@@ -68,10 +68,10 @@ The layout is domain, application and infrastructure, with HTTP adapters inside 
 - **Dependency:** T3.
 
 ### T6 · POST /orders and mandatory functional test
-- **Acceptance:** validate the order body and tradable instrument, execute placement under T14, save the result, and return 201 with Location for FILLED, NEW and REJECTED. Include amount/price limits, exactly one size/amount, LIMIT price, no MARKET price and integer-ID bounds. New orders must not overspend/oversell available resources, including under concurrency.
+- **Acceptance:** validate the order body and tradable instrument, execute placement under T14, save the result, and return 201 without Location for FILLED, NEW and REJECTED. Include amount/price limits, exactly one size/amount, LIMIT price, no MARKET price, canonical cancel IDs and integer-ID bounds. Nonempty order bodies require JSON after identity validation; ordinary unknown body fields are rejected, with framework prototype-key exceptions described in SPEC. New orders must not overspend/oversell available resources, including under concurrency.
 - **Source:** `src/orders/application/use-cases/send-order.use-case.ts`, `src/orders/infrastructure/http/`, `src/orders/infrastructure/persistence/`.
-- **Evidence:** `test/orders.e2e-spec.ts` includes `should return 201 FILLED with a Location when a MARKET BUY has enough cash` and the retained criterion `should fill one order and reject the other with INSUFFICIENT_FUNDS when two concurrent buys only fit one at a time`. Both orders return 201; no assertion selects which request wins. The file also contains a larger competing-buy case, not a production load benchmark.
-- **Boundary:** Location names an order URL with no GET endpoint. This remains a limitation, not a completed retrieval feature.
+- **Evidence:** `test/orders.e2e-spec.ts` includes `should return 201 FILLED when a MARKET BUY has enough cash` and the retained criterion `should fill one order and reject the other with INSUFFICIENT_FUNDS when two concurrent buys only fit one at a time`. Both orders return 201; no assertion selects which request wins. The file also contains a larger competing-buy case, not a production load benchmark.
+- **HTTP evidence:** the same file asserts absence of Location, rejection of ordinary unknown fields without creating an order, JSON with charset acceptance, text/plain 415, missing-user precedence and unsupported-charset 415 before identity. No new runtime execution is claimed here.
 - **Dependencies:** T4, T5, T14.
 
 ### T7 · Portfolio calculation
@@ -83,11 +83,11 @@ The layout is domain, application and infrastructure, with HTTP adapters inside 
 ### T8 · GET /portfolio
 - **Acceptance:** load FILLED and NEW orders once for consistent cash/reservations, then read instrument names/quotes and return the portfolio contract. No global transaction or lock exists across these reads.
 - **Source:** `src/portfolio/application/use-cases/get-portfolio.use-case.ts`, `src/portfolio/infrastructure/persistence/`, `src/portfolio/infrastructure/http/`.
-- **Evidence:** `test/portfolio.e2e-spec.ts`, `src/portfolio/application/use-cases/__tests__/get-portfolio.use-case.spec.ts`. The HTTP file checks the seed portfolio and a position whose real query has no quote; the use-case test checks a single orders read. No test is claimed to prove an atomic ledger/quote snapshot.
+- **Evidence:** `test/portfolio.e2e-spec.ts`, `src/portfolio/application/use-cases/__tests__/get-portfolio.use-case.spec.ts`. The HTTP file checks the seed portfolio, a user without orders, a newly placed order, and a position whose real query has no quote. Use-case assertions cover a single orders read and composition from the user ledger/quotes. No test is claimed to prove an atomic ledger/quote snapshot.
 - **Dependencies:** T4, T7, T3 for database/harness.
 
 ### T9 · GET /instruments?query=
-- **Acceptance:** trimmed case-insensitive ticker/name search; escape LIKE wildcards, exclude MONEDA, rank exact ticker/prefix/name prefix/substring, then ticker/id. Missing query is 400; empty input is an empty list without a repository call.
+- **Acceptance:** trimmed case-insensitive ticker/name search; escape LIKE wildcards, exclude MONEDA, rank exact ticker/prefix/name prefix/substring, then ticker/id. Submitted query must be at most 100 characters before trimming and contain no NUL; ordinary unknown query parameters are rejected. Missing query is 400; valid empty input is an empty list without a repository call.
 - **Source:** `src/instruments/application/use-cases/search-instruments.use-case.ts`, `src/instruments/infrastructure/persistence/prisma-instrument.repository.ts`.
 - **Evidence:** `test/instruments.e2e-spec.ts` plus `src/instruments/application/use-cases/__tests__/search-instruments.use-case.spec.ts`. Retained named criteria:
   - `should reject with 400 VALIDATION_ERROR when the query parameter is missing`
@@ -96,19 +96,21 @@ The layout is domain, application and infrastructure, with HTTP adapters inside 
   - `should rank an exact ticker match first, then ticker prefix, then name prefix, then substring when several instruments match`
   - `should match ticker and name ignoring case when the query mixes upper and lower case`
   - `should return an empty list when the query is only a LIKE wildcard such as % or _`
+- **Additional boundary evidence:** the HTTP file rejects NUL, 101-character input and an unknown query parameter, and accepts exactly 100 characters.
 - **Dependencies:** T3, T4.
 
 ### T11 · POST /orders/:id/cancel
 - **Acceptance:** lock before loading the owned order; NEW becomes CANCELLED with an app-clock cancellation time; repeated CANCELLED returns 200 unchanged; FILLED/REJECTED gives 409; missing/another user's gives 404. Release either cash or share reservations without another balance update. Log after the successful UoW returns.
 - **Source:** `src/orders/application/use-cases/cancel-order.use-case.ts`, `src/orders/domain/entities/order.entity.ts`, `src/orders/infrastructure/http/orders.controller.ts`.
 - **Evidence:** `test/cancel-order.e2e-spec.ts` covers all these state/ownership cases and both reservation types. Retained concurrent criterion: `should fill the buy or reject it with INSUFFICIENT_FUNDS, consistent with the final cash, when a cancel of a NEW LIMIT buy and a MARKET buy run concurrently`.
-- **Proof boundary:** that race checks valid final outcomes; it alone does not demonstrate that removing cancel's lock would make the test fail. The lock's transaction semantics also have T14 integration evidence.
+- **Direct lock evidence:** `should wait for the ledger lock before cancelling` holds the advisory lock in a separate connection, observes a waiting cancellation with its order still NEW, then releases the lock and expects CANCELLED.
+- **Proof boundary:** the older cancel/buy race checks valid final outcomes rather than lock acquisition by itself; the direct lock-wait test and T14 integration tests provide complementary assertions. The file also checks leading-zero IDs and an unused text/plain cancel body.
 - **Dependency:** T6.
 
 ### T12 · Idempotent POST /orders
 - **Acceptance:** optional UUID key, lookup after lock and before repricing, same-user/key/input replay with Idempotent-Replayed, changed input 422, and atomic order/response persistence. Replay must return the original result after cancellation or changed funds; invalid requests must not consume the key. Idempotency is included in the delivery; clients may omit the key.
 - **Source:** `src/orders/application/use-cases/send-order.use-case.ts`, `src/orders/infrastructure/persistence/prisma-idempotency.repository.ts`, `prisma/migrations/20261102000000_idempotency_requests/migration.sql`.
-- **Evidence:** `test/idempotency.e2e-spec.ts`, `test/idempotency-rollback.e2e-spec.ts`. The latter retains `should roll back the order and the idempotent response when saving the response fails`; retry/concurrent-key tests assert a single order and the stored response.
+- **Evidence:** `test/idempotency.e2e-spec.ts`, `test/idempotency-rollback.e2e-spec.ts`. The latter retains `should roll back the order and the idempotent response when saving the response fails`; retry/concurrent-key tests assert a single order and the stored response. A changed-price replay also returns 422; first/replayed responses have no Location header.
 - **Dependencies:** T6 and the integrated T11 lifecycle.
 
 ### T10 · Delivery README

@@ -56,12 +56,12 @@ Database notes:
 
 ## API
 
-Every route requires `X-User-Id`; the seed contains users 1–4. Authentication is excluded by the challenge. This header only declares an identity: clients can impersonate another user, so it is not a security boundary. Missing, malformed or unknown users return `400`.
+Every route requires `X-User-Id`; the seed contains users 1–4. Authentication is excluded by the challenge. This header only declares an identity: clients can impersonate another user, so it is not a security boundary. Missing, malformed or unknown users return `400`. Header IDs and cancel-path IDs must have no leading zeros (`0001` returns `400`).
 
 | Endpoint | Behavior |
 |----------|----------|
 | `GET /portfolio` | Total value, available cash, and positions with quantity, market value, average price and total return. |
-| `GET /instruments?query=pam` | Case-insensitive ticker/name search, excluding currencies. Missing `query` is `400`; empty text returns an empty list. |
+| `GET /instruments?query=pam` | Case-insensitive ticker/name search, excluding currencies. Missing `query` is `400`; empty text returns an empty list. Input is limited to 100 characters before trimming, with no NUL character. |
 | `POST /orders` | Submit a BUY/SELL, MARKET/LIMIT order by shares or ARS amount. |
 | `POST /orders/:id/cancel` | Cancel a `NEW` order. Repeating a successful cancel returns `200` unchanged; other final states return `409`. Missing or another user's order returns `404`. |
 
@@ -88,6 +88,8 @@ curl -s -i -X POST "$B/orders/<id>/cancel" -H "$H"
 
 ### Order contract
 
+- Nonempty `POST /orders` bodies require `Content-Type: application/json`; unsupported media types return `415`. Empty bodies fail field validation with `400`.
+- Ordinary unknown order fields and instrument-search parameters return `400`; framework-filtered prototype names are an exception detailed in the specification. Other routes ignore unknown query parameters.
 - Send `instrumentId`, `side` (`BUY`/`SELL`), `type` (`MARKET`/`LIMIT`), and exactly one of `size` or `amount`. The instrument must exist and must not be a currency.
 - `size` is an integer from 1 to 2147483647. Alternatively, `amount` is an ARS decimal string, such as `"10000.00"`; shares are floored to a whole number.
 - `price` is required for LIMIT and forbidden for MARKET. `amount` and `price` accept `"0.01"` through `"99999999.99"`, with at most two decimals. A LIMIT amount below one share is `400`.
@@ -114,7 +116,7 @@ For example, selling 100 shares of instrument 47 on the fresh seed is rejected b
 }
 ```
 
-Invalid requests return `400` without storing an order. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
+Field-validation failures return `400` without storing an order. Errors share `{ statusCode, code, message, requestId }`; the request ID is also returned in `X-Request-Id`. Global body parsing can return `400`, `413` or `415` before identity validation; the specification explains parser/media-type precedence. Request logs redact Authorization, Cookie and Set-Cookie headers; responses have no X-Powered-By header. For example, `POST /orders/99999/cancel` on the fresh seed returns `404` (request ID is illustrative):
 
 ```json
 {
@@ -155,7 +157,7 @@ Order submission and cancellation use a transaction with a per-user advisory loc
 - Portfolio cash and reservations come from one orders query; quotes are read separately. There is no atomic snapshot across ledger and prices.
 - Heavy same-user concurrency queues behind the advisory lock while holding database connections. Pool or transaction waits can fail; no production throughput guarantee is claimed.
 - Shutdown hooks disconnect Prisma but do not fully drain in-flight HTTP requests before closing the database.
-- Order creation returns `Location: /orders/:id`, but no GET endpoint exists at that URL. There is also no order-history endpoint.
+- There is no order-retrieval or order-history endpoint.
 
 ## Further documentation
 

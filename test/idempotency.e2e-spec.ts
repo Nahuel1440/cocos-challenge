@@ -52,7 +52,7 @@ describe('POST /orders with Idempotency-Key', () => {
 
     expect(retry.status).toBe(201);
     expect(retry.headers['idempotent-replayed']).toBe('true');
-    expect(retry.headers.location).toBe(first.headers.location);
+    expect(retry.headers.location).toBeUndefined();
     expect(retry.body).toEqual(first.body);
   });
 
@@ -78,6 +78,16 @@ describe('POST /orders with Idempotency-Key', () => {
     await sendOrder(LIMIT_BUY, key).expect(201);
 
     const response = await sendOrder({ ...LIMIT_BUY, size: 2 }, key);
+
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+  });
+
+  it('should return 422 when the same key comes with a different price', async () => {
+    const key = randomUUID();
+    await sendOrder(LIMIT_BUY, key).expect(201);
+
+    const response = await sendOrder({ ...LIMIT_BUY, price: '101.00' }, key);
 
     expect(response.status).toBe(422);
     expect(response.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
