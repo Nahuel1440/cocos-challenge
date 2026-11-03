@@ -147,4 +147,48 @@ describe('run', () => {
     await expect(result).rejects.toThrow(OrderSizeTooLargeException);
     expect(mockOrders.save).not.toHaveBeenCalled();
   });
+
+  it('should log only the first run when the same key is replayed', async () => {
+    const KEY = 'a7d1f0c2-5b3e-4c8a-9e61-2f4b7d9a1c35';
+    const MARKET_PRICE = '200';
+    const CASH = 1000;
+    const SIZE = 2;
+    const logSpy = vi.spyOn(Logger.prototype, 'log');
+    mockOrders.searchByUser.mockResolvedValue([
+      LedgerEntryMother.filledCashIn(CASH),
+    ]);
+    mockMarketData.searchLatestClose.mockResolvedValue(
+      new Decimal(MARKET_PRICE),
+    );
+    mockIdempotency.searchByKey.mockResolvedValueOnce(null);
+    const input = SendOrderInputMother.create({
+      instrumentId: INSTRUMENT_ID,
+      side: 'BUY',
+      type: 'MARKET',
+      size: SIZE,
+      idempotencyKey: KEY,
+    });
+
+    const first = await useCase.run(input);
+    const stored = mockIdempotency.save.mock.calls[0]![0];
+    mockIdempotency.searchByKey.mockResolvedValueOnce({
+      requestHash: stored.requestHash,
+      orderId: stored.orderId,
+      response: stored.response,
+    });
+    const replay = await useCase.run(input);
+
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msg: 'Order placed',
+        instrumentId: INSTRUMENT_ID,
+        side: 'BUY',
+        size: SIZE,
+        status: 'FILLED',
+      }),
+    );
+  });
 });

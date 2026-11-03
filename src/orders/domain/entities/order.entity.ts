@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { OrderNotCancellableException } from '@/orders/domain/exceptions/order-not-cancellable.exception';
+import { OrderSizeTooLargeException } from '@/orders/domain/exceptions/order-size-too-large.exception';
 
 export const MAX_ORDER_SIZE = 2147483647;
 
@@ -130,6 +131,10 @@ export class Order {
         ? input.limitPrice
         : Order.positivePriceOrNull(marketPrice);
     const size = Order.deriveSize({ input, price });
+    if (size !== null && size > MAX_ORDER_SIZE) {
+      throw new OrderSizeTooLargeException(MAX_ORDER_SIZE);
+    }
+
     const rejection = Order.deriveRejectionReason({
       input,
       price,
