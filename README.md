@@ -4,6 +4,52 @@ A REST API for a small broker. A user can see their portfolio, search instrument
 
 Balances and holdings are never stored. They are computed from the `orders` table on every request.
 
+## Quick start
+
+Prerequisites: Node 22 (`.nvmrc`), npm, Docker, and local port 5434 free (Postgres) and 3000 free (API).
+
+```bash
+git clone https://github.com/Nahuel1440/cocos-challenge.git
+cd cocos-challenge
+cp .env.example .env     # DATABASE_URL points to the local Postgres on port 5434
+npm ci
+npm run db:up            # Postgres 17 in Docker, loaded with database.sql
+npm run db:baseline      # first time only
+npm run db:migrate
+npm run start:dev        # http://localhost:3000
+```
+
+In another terminal:
+
+```bash
+curl -s http://localhost:3000/portfolio -H 'X-User-Id: 1'
+```
+
+Expected: `200`, with the numbers below (excerpt; the full answer has one more position). BMA is negative on purpose: see [The negative holding in the seed](#the-negative-holding-in-the-seed).
+
+```json
+{
+  "totalValue": "889756.00",
+  "availableCash": "627500.00",
+  "positions": [
+    { "instrumentId": 31, "ticker": "BMA", "quantity": -10, "marketValue": "-15028.00", "averagePrice": null, "totalReturnPercentage": null },
+    { "instrumentId": 47, "ticker": "PAMP", "quantity": 40, "marketValue": "37034.00", "averagePrice": "930.00", "totalReturnPercentage": "-0.45" },
+    "... one more position (METR)"
+  ]
+}
+```
+
+Another port for Postgres: change the host port in `docker-compose.yml` (`ports`, the left side of `5434:5432`) and the port in `DATABASE_URL` in `.env`. The API port is `PORT` (default 3000).
+
+Notes:
+
+- `db:baseline`: `database.sql` already creates the original tables. The first migration (`0_init`) is those same tables, so it is marked as applied and not run. Run it before `db:migrate` on a database that was just created. If the database is already baselined, it fails with `P3008` and does nothing; that is fine.
+- Prisma 7 does not read `.env` by itself. `prisma.config.ts` and `src/main.ts` load it.
+- `npm run db:down` stops Postgres. `npm run db:reset` also deletes the data volume. `docker-compose.yml` fixes the project name, so every checkout of this repo on one machine shares the same container and volume.
+- Next: [Try the endpoints](#try-the-endpoints) and [Tests](#tests).
+
+## Endpoints
+
 | Endpoint | What it does |
 |----------|--------------|
 | `GET /portfolio` | Total account value, available cash, and per position: quantity, market value, average price, total return %. |
@@ -14,25 +60,6 @@ Balances and holdings are never stored. They are computed from the `orders` tabl
 There is no authentication. The user comes in the `X-User-Id` header (the brief says auth is not needed). Any client can send any id, so this is not security.
 
 Every design decision has an ID (D-1, D-2, ...) in [docs/SPEC.md](docs/SPEC.md), with the reason and the rejected options. This README repeats the ones a reviewer needs. It stands on its own.
-
-## Run it
-
-Prerequisites: Node 22 (`.nvmrc`), npm, Docker.
-
-```bash
-cp .env.example .env     # DATABASE_URL points to the local Postgres on port 5434
-npm ci
-npm run db:up            # Postgres 17 in Docker, loaded with database.sql
-npm run db:baseline      # first time only, see below
-npm run db:migrate
-npm run start:dev        # http://localhost:3000 (set PORT to change it)
-```
-
-Why `db:baseline`: `database.sql` already creates the original tables. The first migration (`0_init`) is those same tables, so it is marked as applied and not run. Run `db:baseline` before `db:migrate` on a database that was just created. If the database is already baselined, `db:baseline` fails with `P3008` and does nothing; that is fine.
-
-Prisma 7 does not read `.env` by itself. `prisma.config.ts` and `src/main.ts` load it.
-
-Other database commands: `npm run db:down` stops Postgres. `npm run db:reset` also deletes the data volume. `docker-compose.yml` fixes the project name, so every checkout of this repo on one machine shares the same container and volume.
 
 ### Try the endpoints
 
@@ -66,6 +93,8 @@ curl -s -i -X POST $B/orders -H "$H" -H 'Content-Type: application/json' \
 curl -s -X POST $B/orders/<id>/cancel -H "$H"
 ```
 
+The same requests are in a Postman collection, [cocos-api.postman_collection.json](cocos-api.postman_collection.json). In Postman: Import, pick the file, then run the requests in order. Variables `baseUrl`, `userId` and `orderId` are set in the collection; the LIMIT request saves the new order id for the cancel request.
+
 Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `size` (integer) or `amount` (decimal string). `price` is a decimal string, required for LIMIT, not allowed for MARKET. Money has at most 2 decimals. Errors have one shape: `{ statusCode, code, message, requestId }`. A `REJECTED` order is not an error: it is a `201` with `status: "REJECTED"` and a `rejectionReason` (see D-17).
 
 ### Tests
@@ -74,6 +103,7 @@ Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `si
 |---------|--------------|
 | `npm test` | Unit tests. No database, no Docker. |
 | `npm run test:e2e` | HTTP tests with supertest against a real Postgres. **Needs Docker**: Testcontainers starts its own throwaway Postgres loaded with the seed. It does not touch the `db:up` database. |
+| `npx vitest run --config vitest.config.e2e.mts test/orders.e2e-spec.ts` | Only the functional test for sending an order (`test/orders.e2e-spec.ts`). Needs Docker. |
 | `npm run lint`, `npm run typecheck`, `npm run build` | Static checks. CI runs all of these plus both test commands. |
 
 ## Architecture
@@ -96,8 +126,8 @@ They have unit tests that run without a database. The HTTP and Postgres behaviou
 | Ledger | Cash and shares are derived from `FILLED` orders. A `NEW` LIMIT reserves cash (BUY) or shares (SELL) until it is cancelled (D-6). `totalValue` includes reserved cash (D-7). |
 | Average price | Moving average: a buy recomputes it, a sell keeps it, holding 0 resets it. Orders are replayed by `datetime ASC, id ASC` (D-5, D-33). Total return is against this average, not the previous close (D-4). |
 | Concurrency | Send-order and cancel start with `pg_advisory_xact_lock(1, userId)` in a `READ COMMITTED` transaction. There is no row to lock, because balances come from all orders (D-9). |
-| Portfolio read | One `REPEATABLE READ READ ONLY` transaction, so cash and reservations come from one snapshot (D-35). |
-| Idempotency | Optional `Idempotency-Key` (a UUID). A table `idempotency_requests` stores the request hash and the first response, in the same transaction as the order. Same key and body: the stored response again. Same key, other body: `422 IDEMPOTENCY_KEY_CONFLICT`. A retry returns the original answer even if the order changed since (D-27). |
+| Portfolio read | One query reads all of the user's orders, with no transaction, so cash and reservations come from the snapshot of that one statement. Quotes are a separate read after it. |
+| Idempotency | Optional `Idempotency-Key` (a UUID). A table `idempotency_requests` (`operation`, `request_hash`, `response_status`, `response_body`) stores the request hash and the first response, in the same transaction as the order. Same key and body: the stored response again. Same key, other body: `422 IDEMPOTENCY_KEY_CONFLICT`. A retry returns the original answer even if the order changed since (D-27). |
 | Bad request vs rejected order | A request that can never succeed is a `400` and is not stored. A valid request that cannot run now (no funds, no shares, no price, amount below one share on MARKET) is stored as `REJECTED` (D-8, D-20, D-31). |
 | Cancel | `NEW` becomes `CANCELLED`. Cancelling a `CANCELLED` order returns `200` unchanged. A `FILLED` or `REJECTED` order gives `409`. Missing or another user's order gives `404` (D-18). |
 | Search | `ILIKE` on ticker and name, wildcards escaped, `MONEDA` excluded, ranked: exact ticker, ticker prefix, name prefix, other. Missing `query` is `400`; an empty one is `200` with an empty list (D-36, D-37, D-38). No pagination (D-24). |
@@ -108,6 +138,7 @@ They have unit tests that run without a database. The HTTP and Postgres behaviou
 - **No market price (D-26).** A position whose instrument has no `marketdata` shows `marketValue` and `totalReturnPercentage` as `null` and adds nothing to `totalValue`. `null` means "unknown"; `0` would say "worth nothing". The API cannot create such a holding, so this only protects against data from elsewhere. In the seed, instruments 3, 10 and 66 have no `marketdata`.
 - **`NEW` LIMIT orders never fill.** The brief says the market need not be simulated (O-2). A `NEW` order stays `NEW` until the user cancels it.
 - **MARKET orders fill at the latest `close`** of the instrument, as the brief says.
+- **Total return is against the moving average price, not the previous close (D-4).** The brief's daily return uses `close` and `previousClose`. The portfolio does not show it (D-25).
 - **Identity is the `X-User-Id` header.** A missing, malformed or unknown user is a `400` with `MISSING_USER_ID`, `INVALID_USER_ID` or `UNKNOWN_USER` (D-22). With real auth this would become `401`.
 
 ### Seed pitfalls
@@ -141,16 +172,6 @@ All of this is in `prisma/migrations/`. The first migration is the baseline. The
 | Table `idempotency_requests`, unique on `(userid, operation, idempotency_key)` | It stores the answer to a keyed request. It has its own migration because it ships with the code that uses it (D-27). |
 
 I did not add other indexes. Search has none: `ILIKE '%q%'` cannot use a B-tree and the table is small.
-
-### Questions for Emi
-
-I did not get answers. These are the assumptions in the code.
-
-| # | Question | Assumption |
-|---|----------|------------|
-| 1 | Is the Neon database only mine? Can I run migrations there? | It is shared. Migrations ran only on a local Postgres (D-15). |
-| 2 | Is "total return" against the average purchase price or the previous close? | Moving average purchase price. The brief's daily return uses `close` and `previousclose`; the portfolio does not show it (D-4, D-25). |
-| 3 | An amount below one share: `REJECTED` or an error without saving? | MARKET: `REJECTED AMOUNT_BELOW_ONE_SHARE`. LIMIT: `400`, because the client set the price and it can never succeed (D-8, D-31). |
 
 ### Applying migrations to a remote database
 
@@ -187,7 +208,7 @@ There is no guard against a remote URL left exported in a terminal.
 | O-9 | Fuzzy search (typos) | Dozens of instruments. `pg_trgm` is the next step. |
 | O-10 | Rate limiting, metrics, tracing | Without auth they protect nothing per user. |
 
-Cuts from the SPEC cut list: the REST Client collection (`.http`) was not made; the curl examples above stand in for it. Cursor pagination was not built. The index measurement was not done. Nothing else was cut. All four endpoints, cancellation and idempotency are built.
+Cuts from the SPEC cut list: Cursor pagination was not built. The index measurement was not done. Nothing else was cut. All four endpoints, cancellation and idempotency are built.
 
 ## Limits
 
