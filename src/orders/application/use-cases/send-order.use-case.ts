@@ -36,7 +36,7 @@ import {
 export interface SendOrderInput {
   userId: number;
   instrumentId: number;
-  side: Extract<OrderSide, 'BUY' | 'SELL'>;
+  side: OrderSide;
   type: OrderType;
   size: number | null;
   amount: string | null;

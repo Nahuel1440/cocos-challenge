@@ -2,7 +2,7 @@ import { TransactionHost } from '@nestjs-cls/transactional';
 import { Inject, Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import type { Prisma, Order as OrderRecord } from '@/generated/prisma/client';
-import { Order } from '@/orders/domain/entities/order.entity';
+import { Order, type OrderSide } from '@/orders/domain/entities/order.entity';
 import { OrderNotFoundException } from '@/orders/domain/exceptions/order-not-found.exception';
 import type {
   FindByIdForUserParams,
@@ -70,7 +70,7 @@ export class PrismaOrderRepository implements OrderRepository {
       id: record.id,
       userId: record.userId,
       instrumentId: record.instrumentId,
-      side: record.side as 'BUY' | 'SELL',
+      side: record.side as OrderSide,
       type: record.type,
       size: record.size,
       price: record.price === null ? null : record.price.toString(),
