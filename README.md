@@ -14,7 +14,7 @@ cd cocos-challenge
 cp .env.example .env     # DATABASE_URL points to the local Postgres on port 5434
 npm ci
 npm run db:up            # Postgres 17 in Docker, loaded with database.sql
-npm run db:baseline      # first time only
+npm run db:baseline      # first time, and after db:reset
 npm run db:migrate
 npm run start:dev        # http://localhost:3000
 ```
@@ -25,7 +25,7 @@ In another terminal:
 curl -s http://localhost:3000/portfolio -H 'X-User-Id: 1'
 ```
 
-Expected: `200`, with the numbers below (excerpt; the full answer has one more position). BMA is negative on purpose: see [The negative holding in the seed](#the-negative-holding-in-the-seed).
+Expected: `200`, with the numbers below (excerpt; each position also has `name`, and the full answer has one more position). BMA is negative because of the seed: see [The negative holding in the seed](#the-negative-holding-in-the-seed).
 
 ```json
 {
@@ -39,7 +39,7 @@ Expected: `200`, with the numbers below (excerpt; the full answer has one more p
 }
 ```
 
-Another port for Postgres: change the host port in `docker-compose.yml` (`ports`, the left side of `5434:5432`) and the port in `DATABASE_URL` in `.env`. The API port is `PORT` (default 3000).
+Another port for Postgres: change the host port in `docker-compose.yml` (`ports`: change `5434` in `127.0.0.1:5434:5432` and keep the rest) and the port in `DATABASE_URL` in `.env`. The API port is `PORT` (default 3000).
 
 Notes:
 
@@ -97,12 +97,34 @@ Optional: the same requests are in a Postman collection, [cocos-api.postman_coll
 
 Rules for the order body: `instrumentId`, `side`, `type`, and exactly one of `size` (integer) or `amount` (decimal string). `price` is a decimal string, required for LIMIT, not allowed for MARKET. Money has at most 2 decimals. Errors have one shape: `{ statusCode, code, message, requestId }`. A `REJECTED` order is not an error: it is a `201` with `status: "REJECTED"` and a `rejectionReason` (see D-17).
 
+More on the order body:
+
+- `instrumentId` is an integer from 1 to 2147483647. It must exist and not be `MONEDA` (a currency), else `400 VALIDATION_ERROR`.
+- `size` is an integer from 1 to 2147483647. `amount` and `price` are decimal strings from `0.01` to `99999999.99`.
+- A LIMIT order with `amount` must buy at least one share at its `price`, else `400`.
+- `rejectionReason` is one of `INSUFFICIENT_FUNDS`, `INSUFFICIENT_SHARES`, `AMOUNT_BELOW_ONE_SHARE`, `NO_MARKET_PRICE`.
+- Error codes you can meet: `VALIDATION_ERROR` (400), `ORDER_NOT_FOUND` (404), `ORDER_NOT_CANCELLABLE` (409), `IDEMPOTENCY_KEY_CONFLICT` (422), `INTERNAL_ERROR` (500).
+
+A rejected order (user 1 holds 40 shares of instrument 47, so selling 100 is refused). Request: `{"instrumentId":47,"side":"SELL","type":"MARKET","size":100}`.
+
+```
+201
+{"id":12,"userId":1,"instrumentId":47,"side":"SELL","type":"MARKET","size":100,"price":"925.85","status":"REJECTED","rejectionReason":"INSUFFICIENT_SHARES","datetime":"2026-11-03T10:25:33.110Z","cancelledAt":null}
+```
+
+An error (`POST /orders/99999/cancel`):
+
+```
+404
+{"statusCode":404,"code":"ORDER_NOT_FOUND","message":"Order 99999 does not exist","requestId":"e662cc4e-ff1e-4200-99b6-643df5e1b2ba"}
+```
+
 ### Tests
 
 | Command | What it runs |
 |---------|--------------|
 | `npm test` | Unit tests. No database, no Docker. |
-| `npm run test:e2e` | HTTP tests with supertest against a real Postgres. **Needs Docker**: Testcontainers starts its own throwaway Postgres loaded with the seed. It does not touch the `db:up` database. |
+| `npm run test:e2e` | HTTP and integration tests (supertest and `test/shared/unit-of-work.int-spec.ts`) against a real Postgres. **Needs Docker**: Testcontainers starts its own throwaway Postgres loaded with the seed. It does not touch the `db:up` database. |
 | `npx vitest run --config vitest.config.e2e.mts test/orders.e2e-spec.ts` | Only the functional test for sending an order (`test/orders.e2e-spec.ts`). Needs Docker. |
 | `npm run lint`, `npm run typecheck`, `npm run build` | Static checks. CI runs all of these plus both test commands. |
 
@@ -189,7 +211,7 @@ There is no guard against a remote URL left exported in a terminal.
 |-----|-------------|
 | Output is rounded to 2 decimals. A client that computes with `averagePrice` loses precision. | The brief asks for a user view. Full-precision fields can be added next to the rounded ones without breaking clients. |
 | A `NEW` LIMIT never fills and never expires. | No market simulation (O-2). A later matcher would fill it under the same per-user lock. The reservation already holds the cash. |
-| Balances are recomputed from all of a user's orders on each request. | Fast at about 100 orders per user, and the brief asks for it. At larger volumes, keep a balance snapshot updated in the same transaction, with `orders` still the source of truth. |
+| Balances are recomputed from all of a user's `FILLED` and `NEW` orders on each request. | Fast at about 100 orders per user, and the brief asks for it. At larger volumes, keep a balance snapshot updated in the same transaction, with `orders` still the source of truth. |
 | No pagination in search. | The seed has dozens of instruments. The `{ "instruments": [] }` wrapper lets `nextCursor` be added later. |
 | No index measurement with generated volume (`EXPLAIN ANALYZE`). | Not done (D-14). The index choices are reasoned, not measured. |
 
@@ -208,17 +230,17 @@ There is no guard against a remote URL left exported in a terminal.
 | O-9 | Fuzzy search (typos) | Dozens of instruments. `pg_trgm` is the next step. |
 | O-10 | Rate limiting, metrics, tracing | Without auth they protect nothing per user. |
 
-Cuts from the SPEC cut list: Cursor pagination was not built. The index measurement was not done. Nothing else was cut. All four endpoints, cancellation and idempotency are built.
+Cuts from the SPEC cut list: the REST Client file became a Postman collection (optional, see above). Cursor pagination was not built. The index measurement was not done. Nothing else was cut. All four endpoints, cancellation and idempotency are built.
 
 ## Limits
 
 These are known and not fixed.
 
 - **`INT` ids.** `users`, `instruments` and `orders` use `SERIAL` (4-byte `INT`) because the provided schema does. The limit is about 2.1 billion, and `orders.id` would be the first to reach it. `bigint` is the better choice for a real system. The code checks `2147483647` as the maximum id and share count.
-- **Connection pool.** The pool keeps the default of 10 connections and Prisma waits only a short time (its default of 2 seconds, not set in the code) to start a transaction. Each order or cancel holds a connection while it waits for the per-user lock. Many parallel requests from one user can run out of waiting time and fail with `P2028`, which the API returns as a `500`. Prisma's default transaction timeout (5 seconds, also not set in the code) limits how long a request can sit in that queue. These defaults were not tested here. The tests use two parallel orders per case, so they do not hit this.
+- **Connection pool.** The pool keeps the default of 10 connections and Prisma waits only a short time (its default of 2 seconds, not set in the code) to start a transaction. Each order or cancel holds a connection while it waits for the per-user lock. Many parallel requests from one user can run out of waiting time and fail with `P2028`, which the API returns as a `500`. Prisma's default transaction timeout (5 seconds, also not set in the code) limits how long a request can sit in that queue. These defaults were not tested here. The tests use at most 8 parallel orders, below the pool size of 10, so they do not hit this. The `pg` pool does set `connectionTimeoutMillis` to 5000 (`src/shared/infrastructure/prisma/prisma.service.ts`), so a request that cannot get a connection fails after 5 seconds; the "not set in the code" above applies only to the transaction waits.
 - **Shutdown is not graceful.** `enableShutdownHooks` is on, but Nest runs `onModuleDestroy` first, and `PrismaService` disconnects there, before the HTTP server stops. In-flight requests can fail on a closed database. It is not a drain.
 - **`Location` points nowhere.** `POST /orders` returns `Location: /orders/:id`, but there is no `GET /orders/:id`. The header is correct for REST; the route does not exist.
 - **Concurrency tests.** The send-order test and the idempotency test fail when the lock is removed: 5 of 5 runs in each case when the lock was removed by hand while the tests were written; I did not repeat this for the README. The cancel test does not detect a missing lock, because a cancel only frees cash, so a race still gives a valid result. It checks that the final state is consistent, not that the lock exists. The lock on cancel stays by design (D-9).
-- **Validation order.** Body parser errors (malformed JSON, body too large) come before the user guard, so they return `400 VALIDATION_ERROR` even without `X-User-Id`. Field validation of a valid JSON body runs after the guard.
+- **Validation order.** Body parser errors come before the user guard, so they are returned even without `X-User-Id`: malformed JSON is `400 VALIDATION_ERROR`, and a body that is too large is `413 PAYLOAD_TOO_LARGE`. Field validation of a valid JSON body runs after the guard.
 - **Remote database.** Migrations were only ever applied to a local Postgres (see above).
 - **No `GET` for orders or order history.** The brief does not ask for it.
