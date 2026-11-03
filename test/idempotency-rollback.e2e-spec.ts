@@ -80,13 +80,13 @@ describe('POST /orders when the idempotent response cannot be saved', () => {
     const key = randomUUID();
     const ordersBefore = await countRows('orders');
     const cashBefore = await availableCash();
-    vi.spyOn(
-      app.get<IdempotencyRepository>(IDEMPOTENCY_REPOSITORY),
-      'save',
-    ).mockRejectedValueOnce(new Error('response could not be saved'));
+    const saveResponse = vi
+      .spyOn(app.get<IdempotencyRepository>(IDEMPOTENCY_REPOSITORY), 'save')
+      .mockRejectedValueOnce(new Error('response could not be saved'));
 
     const failed = await sendOrder(key);
 
+    expect(saveResponse).toHaveBeenCalledTimes(1);
     expect(failed.status).toBe(500);
     expect(failed.body.code).toBe('INTERNAL_ERROR');
     expect(await countRows('orders')).toBe(ordersBefore);
