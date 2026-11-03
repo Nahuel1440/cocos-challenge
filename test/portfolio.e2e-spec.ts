@@ -1,6 +1,15 @@
 import type { INestApplication } from '@nestjs/common';
+import { Client } from 'pg';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import { createTestApp } from './support/create-test-app';
 import { reloadSeed } from './support/reload-seed';
 import { truncateAllTables } from './support/truncate-all-tables';
@@ -60,5 +69,30 @@ describe('GET /portfolio', () => {
         },
       ],
     });
+  });
+
+  it('should return null market value and leave the position out of the total when it has no price', async () => {
+    const client = new Client({ connectionString: inject('databaseUrl') });
+    await client.connect();
+    try {
+      await client.query(
+        'DELETE FROM public.marketdata WHERE instrumentid = 54',
+      );
+    } finally {
+      await client.end();
+    }
+
+    const response = await request(app.getHttpServer())
+      .get('/portfolio')
+      .set('X-User-Id', SEED_USER_ID)
+      .expect(200);
+
+    const unpriced = response.body.positions.find(
+      (position: { instrumentId: number }) => position.instrumentId === 54,
+    );
+    expect(unpriced.quantity).toBe(500);
+    expect(unpriced.marketValue).toBeNull();
+    expect(unpriced.totalReturnPercentage).toBeNull();
+    expect(response.body.totalValue).toBe('775006.00');
   });
 });
