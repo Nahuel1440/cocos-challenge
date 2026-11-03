@@ -41,29 +41,9 @@ export class CancelOrderUseCase {
   }
 
   private logOutcome(order: Order): void {
-    const {
-      id,
-      userId,
-      instrumentId,
-      side,
-      type,
-      status,
-      rejectionReason,
-      size,
-      price,
-    } = order.toPrimitives();
-
     this.logger.log({
       msg: 'Order cancelled',
-      orderId: id,
-      userId,
-      instrumentId,
-      side,
-      type,
-      status,
-      rejectionReason,
-      size,
-      price,
+      ...order.toPrimitives(),
     });
   }
 }
