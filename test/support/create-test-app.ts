@@ -1,6 +1,8 @@
 import type { INestApplication, Type } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '@/app.module';
+import { configureApp } from '@/shared/infrastructure/http/configure-app';
 
 export async function createTestApp(
   controllers: Type<unknown>[] = [],
@@ -9,7 +11,8 @@ export async function createTestApp(
     imports: [AppModule],
     controllers,
   }).compile();
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  configureApp(app);
   await app.init();
   return app;
 }

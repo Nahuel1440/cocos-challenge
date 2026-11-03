@@ -95,6 +95,17 @@ describe('POST /orders/:id/cancel', () => {
     expect(response.body.cancelledAt).toEqual(expect.any(String));
   });
 
+  it('should ignore the request body and return 200 when the cancel request carries a text/plain body', async () => {
+    const placed = await sendOrder({ type: 'LIMIT', size: 1, price: '100.00' });
+
+    const response = await cancel(placed.body.id)
+      .set('Content-Type', 'text/plain')
+      .send('ignored');
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('CANCELLED');
+  });
+
   it('should return 200 with the order unchanged when it is already CANCELLED', async () => {
     const placed = await sendOrder({ type: 'LIMIT', size: 1, price: '100.00' });
     const first = await cancel(placed.body.id).expect(200);
@@ -103,6 +114,17 @@ describe('POST /orders/:id/cancel', () => {
 
     expect(retry.status).toBe(200);
     expect(retry.body).toEqual(first.body);
+  });
+
+  it('should reject with 400 VALIDATION_ERROR when the cancel id has leading zeros', async () => {
+    const response = await cancel(`000${SEED_ORDER_IDS.filled}`).expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('id'),
+      requestId: response.headers['x-request-id'],
+    });
   });
 
   it('should return 409 when the order is FILLED', async () => {

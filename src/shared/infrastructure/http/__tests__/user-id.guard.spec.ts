@@ -95,7 +95,7 @@ describe('UserIdGuard', () => {
     ).resolves.toBe(true);
   });
 
-  it.each(['-1', '1.5', '', ' 1'])(
+  it.each(['-1', '1.5', '', ' 1', '0001'])(
     'should reject with INVALID_USER_ID when the X-User-Id is not a plain digit string (%j)',
     async (value) => {
       const guard = new UserIdGuard(usersWith(true));
