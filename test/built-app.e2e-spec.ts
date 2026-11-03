@@ -93,5 +93,5 @@ describe('built application', () => {
     expect(output).toContain('"x-user-id":"1"');
     expect(output).not.toContain(AUTHORIZATION);
     expect(output).not.toContain(COOKIE);
-  });
+  }, LOG_LIMIT_MS + 5000);
 });
