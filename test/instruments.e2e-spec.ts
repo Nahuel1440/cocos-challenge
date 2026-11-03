@@ -47,6 +47,38 @@ describe('GET /instruments', () => {
     });
   });
 
+  it('should reject with 400 VALIDATION_ERROR when the query contains a NUL character', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/instruments')
+      .query({ query: 'a\0b' })
+      .set('X-User-Id', SEED_USER_ID)
+      .expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('query'),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
+  it('should reject with 400 VALIDATION_ERROR when the query is longer than 100 characters', async () => {
+    const MAX_QUERY_LENGTH = 100;
+
+    const response = await request(app.getHttpServer())
+      .get('/instruments')
+      .query({ query: 'a'.repeat(MAX_QUERY_LENGTH + 1) })
+      .set('X-User-Id', SEED_USER_ID)
+      .expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('query'),
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
   it('should rank an exact ticker match first, then ticker prefix, then name prefix, then substring when several instruments match', async () => {
     const EXACT_THEN_NAME_PREFIX = ['TRAN', 'TGNO4', 'TGSU2'];
     const PREFIX_THEN_NAME_PREFIX_THEN_SUBSTRING = [

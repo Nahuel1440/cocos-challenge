@@ -53,7 +53,7 @@ Notes:
 | Endpoint | What it does |
 |----------|--------------|
 | `GET /portfolio` | Total account value, available cash, and per position: quantity, market value, average price, total return %. |
-| `GET /instruments?query=` | Search by ticker and/or name. |
+| `GET /instruments?query=` | Search by ticker and/or name. `query` has at most 100 characters and no NUL character, else `400`. |
 | `POST /orders` | Send a BUY/SELL, MARKET/LIMIT order, by `size` (shares) or `amount` (ARS). Optional `Idempotency-Key`. |
 | `POST /orders/:id/cancel` | Cancel a `NEW` order. |
 
